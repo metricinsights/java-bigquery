@@ -1,19 +1,5 @@
 # Changelog
 
-### [1.128.1](https://www.github.com/googleapis/java-bigquery/compare/v1.128.0...v1.128.1) (2021-04-17)
-
-
-### Bug Fixes
-
-* release scripts from issuing overlapping phases ([#1241](https://www.github.com/googleapis/java-bigquery/issues/1241)) ([b2bbc90](https://www.github.com/googleapis/java-bigquery/commit/b2bbc90d968573e4e2e7c0785da3b5ae4c1ac0d7))
-* typo ([#1236](https://www.github.com/googleapis/java-bigquery/issues/1236)) ([e2e7f90](https://www.github.com/googleapis/java-bigquery/commit/e2e7f900db11c513818339208eee28cccc5aa76f))
-
-
-### Dependencies
-
-* update dependency com.google.apis:google-api-services-bigquery to v2-rev20210410-1.31.0 ([#1245](https://www.github.com/googleapis/java-bigquery/issues/1245)) ([b00ded9](https://www.github.com/googleapis/java-bigquery/commit/b00ded92dfe553f9cf06624606717729f1103d6b))
-* update dependency com.google.cloud:google-cloud-bigtable to v1.23.0 ([#1239](https://www.github.com/googleapis/java-bigquery/issues/1239)) ([18c17ab](https://www.github.com/googleapis/java-bigquery/commit/18c17ab30e893763d4075f40242aceec4c1d14d4))
-
 ## [1.128.0](https://www.github.com/googleapis/java-bigquery/compare/v1.127.12...v1.128.0) (2021-04-09)
 
 

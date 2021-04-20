@@ -4,7 +4,7 @@
   <groupId>com.google.cloud</groupId>
   <artifactId>google-cloud-bigquery-parent</artifactId>
   <packaging>pom</packaging>
-  <version>1.128.1</version><!-- {x-version-update:google-cloud-bigquery:current} -->
+  <version>1.128.3</version><!-- {x-version-update:google-cloud-bigquery:current} -->
   <name>BigQuery Parent</name>
   <url>https://github.com/googleapis/java-bigquery</url>
   <description>
@@ -42,13 +42,9 @@
     <system>GitHub Issues</system>
   </issueManagement>
   <distributionManagement>
-    <snapshotRepository>
-      <id>sonatype-nexus-snapshots</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
     <repository>
-      <id>sonatype-nexus-staging</id>
-      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+      <url>scpexe://${repo.host}/${repo.root}/mvn/staging/</url>
+      <id>mi-staging-repository-ssh</id>
     </repository>
   </distributionManagement>
   <licenses>
@@ -66,6 +62,8 @@
     <google-api-services-bigquery.version>v2-rev20210410-1.31.0
     </google-api-services-bigquery.version>
     <google.cloud.shared-dependencies.version>0.21.0</google.cloud.shared-dependencies.version>
+    <repo.host>repo.metricinsights.com</repo.host>
+    <repo.root>var/www/repo.metricinsights.com</repo.root>
   </properties>
 
   <dependencyManagement>
@@ -87,7 +85,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-bigquery</artifactId>
-        <version>1.128.1</version><!-- {x-version-update:google-cloud-bigquery:current} -->
+        <version>1.128.3</version><!-- {x-version-update:google-cloud-bigquery:current} -->
       </dependency>
 
       <dependency>
