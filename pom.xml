@@ -203,6 +203,16 @@
     </plugins>
   </reporting>
 
+  <build>
+    <extensions>
+      <extension>
+        <artifactId>wagon-ssh-external</artifactId>
+        <version>2.4</version>
+        <groupId>org.apache.maven.wagon</groupId>
+      </extension>
+    </extensions>
+  </build>
+
   <profiles>
     <profile>
       <id>include-samples</id>
