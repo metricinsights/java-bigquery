@@ -34,36 +34,11 @@ import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.core.InternalApi;
 import com.google.api.core.InternalExtensionOnly;
 import com.google.api.services.bigquery.Bigquery;
-import com.google.api.services.bigquery.model.Dataset;
-import com.google.api.services.bigquery.model.DatasetList;
-import com.google.api.services.bigquery.model.DatasetReference;
-import com.google.api.services.bigquery.model.GetIamPolicyRequest;
-import com.google.api.services.bigquery.model.GetPolicyOptions;
-import com.google.api.services.bigquery.model.GetQueryResultsResponse;
-import com.google.api.services.bigquery.model.Job;
-import com.google.api.services.bigquery.model.JobList;
-import com.google.api.services.bigquery.model.JobStatus;
-import com.google.api.services.bigquery.model.ListModelsResponse;
-import com.google.api.services.bigquery.model.ListRoutinesResponse;
-import com.google.api.services.bigquery.model.Model;
-import com.google.api.services.bigquery.model.ModelReference;
-import com.google.api.services.bigquery.model.Policy;
-import com.google.api.services.bigquery.model.QueryRequest;
-import com.google.api.services.bigquery.model.QueryResponse;
-import com.google.api.services.bigquery.model.Routine;
-import com.google.api.services.bigquery.model.RoutineReference;
-import com.google.api.services.bigquery.model.SetIamPolicyRequest;
-import com.google.api.services.bigquery.model.Table;
-import com.google.api.services.bigquery.model.TableDataInsertAllRequest;
-import com.google.api.services.bigquery.model.TableDataInsertAllResponse;
-import com.google.api.services.bigquery.model.TableDataList;
-import com.google.api.services.bigquery.model.TableList;
-import com.google.api.services.bigquery.model.TableReference;
-import com.google.api.services.bigquery.model.TestIamPermissionsRequest;
-import com.google.api.services.bigquery.model.TestIamPermissionsResponse;
+import com.google.api.services.bigquery.model.*;
 import com.google.cloud.Tuple;
 import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.BigQueryOptions;
+import com.google.cloud.bigquery.Project;
 import com.google.cloud.http.HttpTransportOptions;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
@@ -98,6 +73,18 @@ public class HttpBigQueryRpc implements BigQueryRpc {
               .setLabels(datasetPb.getLabels());
         }
       };
+
+  @InternalApi("Visible for testing")
+  static final Function<ProjectList.Projects, ProjectList.Projects> LIST_TO_PROJECTS =
+          new Function<ProjectList.Projects, ProjectList.Projects>() {
+            @Override
+            public ProjectList.Projects apply(ProjectList.Projects projectsPb) {
+              return new ProjectList.Projects()
+                      .setFriendlyName(projectsPb.getFriendlyName())
+                      .setId(projectsPb.getId())
+                      .setKind(projectsPb.getKind());
+            }
+          };
 
   public HttpBigQueryRpc(BigQueryOptions options) {
     HttpTransportOptions transportOptions = (HttpTransportOptions) options.getTransportOptions();
@@ -152,6 +139,26 @@ public class HttpBigQueryRpc implements BigQueryRpc {
           Iterables.transform(
               datasets != null ? datasets : ImmutableList.<DatasetList.Datasets>of(),
               LIST_TO_DATASET));
+    } catch (IOException ex) {
+      throw translate(ex);
+    }
+  }
+
+  @Override
+  public Tuple<String, Iterable<ProjectList.Projects>> listProjects(Map<Option, ?> options) {
+    try {
+      ProjectList projectList = bigquery.projects()
+              .list()
+              .setMaxResults(Option.MAX_RESULTS.getLong(options))
+              .setPageToken(Option.PAGE_TOKEN.getString(options))
+              .setPageToken(Option.PAGE_TOKEN.getString(options))
+              .execute();
+      Iterable<ProjectList.Projects> projects = projectList.getProjects();
+      return Tuple.of(
+              projectList.getNextPageToken(),
+              Iterables.transform(
+                      projects != null ? projects : ImmutableList.<ProjectList.Projects>of(),
+                      LIST_TO_PROJECTS));
     } catch (IOException ex) {
       throw translate(ex);
     }

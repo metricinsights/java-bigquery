@@ -18,19 +18,7 @@ package com.google.cloud.bigquery.spi.v2;
 
 import com.google.api.core.InternalExtensionOnly;
 import com.google.api.services.bigquery.Bigquery.Jobs.Query;
-import com.google.api.services.bigquery.model.Dataset;
-import com.google.api.services.bigquery.model.GetQueryResultsResponse;
-import com.google.api.services.bigquery.model.Job;
-import com.google.api.services.bigquery.model.Model;
-import com.google.api.services.bigquery.model.Policy;
-import com.google.api.services.bigquery.model.QueryRequest;
-import com.google.api.services.bigquery.model.QueryResponse;
-import com.google.api.services.bigquery.model.Routine;
-import com.google.api.services.bigquery.model.Table;
-import com.google.api.services.bigquery.model.TableDataInsertAllRequest;
-import com.google.api.services.bigquery.model.TableDataInsertAllResponse;
-import com.google.api.services.bigquery.model.TableDataList;
-import com.google.api.services.bigquery.model.TestIamPermissionsResponse;
+import com.google.api.services.bigquery.model.*;
 import com.google.cloud.ServiceRpc;
 import com.google.cloud.Tuple;
 import com.google.cloud.bigquery.BigQueryException;
@@ -100,6 +88,13 @@ public interface BigQueryRpc extends ServiceRpc {
    * @throws BigQueryException upon failure
    */
   Tuple<String, Iterable<Dataset>> listDatasets(String projectId, Map<Option, ?> options);
+
+  /**
+   * Lists the projects in which the caller (user of service account) has a BigQuery related role.
+   *
+   * @throws BigQueryException upon failure
+   */
+  Tuple<String, Iterable<ProjectList.Projects>> listProjects(Map<Option, ?> options);
 
   /**
    * Creates a new dataset.

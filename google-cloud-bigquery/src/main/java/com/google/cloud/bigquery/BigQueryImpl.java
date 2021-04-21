@@ -82,6 +82,26 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
     }
   }
 
+  private static class ProjectPageFetcher implements NextPageFetcher<Project>{
+
+    private final Map<BigQueryRpc.Option, ?> requestOptions;
+    private final BigQueryOptions serviceOptions;
+
+    ProjectPageFetcher(
+            BigQueryOptions serviceOptions,
+            String cursor,
+            Map<BigQueryRpc.Option, ?> optionMap) {
+      this.requestOptions =
+              PageImpl.nextRequestOptions(BigQueryRpc.Option.PAGE_TOKEN, cursor, optionMap);
+      this.serviceOptions = serviceOptions;
+    }
+
+    @Override
+    public Page<Project> getNextPage() {
+      return listProjects(serviceOptions, requestOptions);
+    }
+  }
+
   private static class TablePageFetcher implements NextPageFetcher<Table> {
 
     private static final long serialVersionUID = 8611248840504201187L;
@@ -472,6 +492,45 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
                   return Dataset.fromPb(serviceOptions.getService(), dataset);
                 }
               }));
+    } catch (RetryHelper.RetryHelperException e) {
+      throw BigQueryException.translateAndThrow(e);
+    }
+  }
+
+  @Override
+  public Page<Project> listProjects(ProjectListOption... options) {
+    return listProjects(getOptions(), optionMap(options));
+  }
+
+  private static Page<Project> listProjects(
+          final BigQueryOptions serviceOptions,
+          final Map<BigQueryRpc.Option, ?> optionsMap) {
+    try {
+      Tuple<String, Iterable<com.google.api.services.bigquery.model.ProjectList.Projects>> result =
+              runWithRetries(
+                      new Callable<
+                              Tuple<String, Iterable<com.google.api.services.bigquery.model.ProjectList.Projects>>>() {
+                        @Override
+                        public Tuple<String, Iterable<com.google.api.services.bigquery.model.ProjectList.Projects>>
+                        call() {
+                          return serviceOptions.getBigQueryRpcV2().listProjects(optionsMap);
+                        }
+                      },
+                      serviceOptions.getRetrySettings(),
+                      EXCEPTION_HANDLER,
+                      serviceOptions.getClock());
+      String cursor = result.x();
+      return new PageImpl<>(
+              new ProjectPageFetcher(serviceOptions, cursor, optionsMap),
+              cursor,
+              Iterables.transform(
+                      result.y(),
+                      new Function<com.google.api.services.bigquery.model.ProjectList.Projects, Project>() {
+                        @Override
+                        public Project apply(com.google.api.services.bigquery.model.ProjectList.Projects projects) {
+                          return new Project(projects.getId(), projects.getFriendlyName());
+                        }
+                      }));
     } catch (RetryHelper.RetryHelperException e) {
       throw BigQueryException.translateAndThrow(e);
     }
