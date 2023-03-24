@@ -56,6 +56,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
   private final DatasetId defaultDataset;
   private final Priority priority;
   private final Boolean allowLargeResults;
+  private final Boolean createSession;
   private final Boolean useQueryCache;
   private final Boolean flattenResults;
   private final Boolean dryRun;
@@ -108,6 +109,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
     private DatasetId defaultDataset;
     private Priority priority;
     private Boolean allowLargeResults;
+    private Boolean createSession;
     private Boolean useQueryCache;
     private Boolean flattenResults;
     private Boolean dryRun;
@@ -142,6 +144,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
       this.defaultDataset = jobConfiguration.defaultDataset;
       this.priority = jobConfiguration.priority;
       this.allowLargeResults = jobConfiguration.allowLargeResults;
+      this.createSession = jobConfiguration.createSession;
       this.useQueryCache = jobConfiguration.useQueryCache;
       this.flattenResults = jobConfiguration.flattenResults;
       this.dryRun = jobConfiguration.dryRun;
@@ -163,6 +166,11 @@ public final class QueryJobConfiguration extends JobConfiguration {
       this();
       JobConfigurationQuery queryConfigurationPb = configurationPb.getQuery();
       this.query = queryConfigurationPb.getQuery();
+      // Allows to get undeclaredqueryparameters in jobstatistics2
+      if (queryConfigurationPb.getQueryParameters() == null
+          && queryConfigurationPb.getParameterMode() != null) {
+        parameterMode = queryConfigurationPb.getParameterMode();
+      }
       if (queryConfigurationPb.getQueryParameters() != null
           && !queryConfigurationPb.getQueryParameters().isEmpty()) {
         if (queryConfigurationPb.getQueryParameters().get(0).getName() == null) {
@@ -185,6 +193,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
         }
       }
       allowLargeResults = queryConfigurationPb.getAllowLargeResults();
+      createSession = queryConfigurationPb.getCreateSession();
       useQueryCache = queryConfigurationPb.getUseQueryCache();
       flattenResults = queryConfigurationPb.getFlattenResults();
       useLegacySql = queryConfigurationPb.getUseLegacySql();
@@ -461,6 +470,16 @@ public final class QueryJobConfiguration extends JobConfiguration {
     }
 
     /**
+     * Sets whether to create a new session. If {@code true} a random session id will be generated
+     * by BigQuery. If false, runs query with an existing session_id passed in ConnectionProperty,
+     * otherwise runs query in non-session mode."
+     */
+    public Builder setCreateSession(Boolean createSession) {
+      this.createSession = createSession;
+      return this;
+    }
+
+    /**
      * Sets whether the job is enabled to create arbitrarily large results. If {@code true} the
      * query is allowed to create large results at a slight cost in performance. If {@code true}
      * {@link Builder#setDestinationTable(TableId)} must be provided.
@@ -656,6 +675,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
     namedParameters = ImmutableMap.copyOf(builder.namedParameters);
     this.parameterMode = builder.parameterMode;
     this.allowLargeResults = builder.allowLargeResults;
+    this.createSession = builder.createSession;
     this.createDisposition = builder.createDisposition;
     this.defaultDataset = builder.defaultDataset;
     this.destinationTable = builder.destinationTable;
@@ -691,6 +711,15 @@ public final class QueryJobConfiguration extends JobConfiguration {
    */
   public Boolean allowLargeResults() {
     return allowLargeResults;
+  }
+
+  /**
+   * Returns whether to create a new session.
+   *
+   * @see <a href="https://cloud.google.com/bigquery/docs/sessions-create">Create Sessions</a>
+   */
+  public Boolean createSession() {
+    return createSession;
   }
 
   /**
@@ -897,6 +926,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
         .add("destinationEncryptionConfiguration", destinationEncryptionConfiguration)
         .add("defaultDataset", defaultDataset)
         .add("allowLargeResults", allowLargeResults)
+        .add("createSession", createSession)
         .add("flattenResults", flattenResults)
         .add("priority", priority)
         .add("tableDefinitions", tableDefinitions)
@@ -928,6 +958,7 @@ public final class QueryJobConfiguration extends JobConfiguration {
     return Objects.hash(
         baseHashCode(),
         allowLargeResults,
+        createSession,
         createDisposition,
         destinationTable,
         defaultDataset,
@@ -987,6 +1018,9 @@ public final class QueryJobConfiguration extends JobConfiguration {
     configurationPb.setDryRun(dryRun());
     if (allowLargeResults != null) {
       queryConfigurationPb.setAllowLargeResults(allowLargeResults);
+    }
+    if (createSession != null) {
+      queryConfigurationPb.setCreateSession(createSession);
     }
     if (createDisposition != null) {
       queryConfigurationPb.setCreateDisposition(createDisposition.toString());

@@ -508,11 +508,12 @@ public class BigQueryImplTest {
           .setEtag(ETAG)
           .setVersion(1)
           .build();
-
   private BigQueryOptions options;
   private BigQueryRpcFactory rpcFactoryMock;
   private BigQueryRpc bigqueryRpcMock;
   private BigQuery bigquery;
+  private static final String RATE_LIMIT_ERROR_MSG =
+      "Job exceeded rate limits: Your table exceeded quota for table update operations. For more information, see https://cloud.google.com/bigquery/docs/troubleshoot-quotas";
 
   @Captor private ArgumentCaptor<Map<BigQueryRpc.Option, Object>> capturedOptions;
   @Captor private ArgumentCaptor<com.google.api.services.bigquery.model.Job> jobCapture;
@@ -809,6 +810,25 @@ public class BigQueryImplTest {
     Table table = bigquery.create(tableInfo);
     assertEquals(new Table(bigquery, new TableInfo.BuilderImpl(tableInfo)), table);
     verify(bigqueryRpcMock).create(tableInfo.toPb(), EMPTY_RPC_OPTIONS);
+  }
+
+  @Test
+  public void tesCreateExternalTable() {
+    TableInfo createTableInfo =
+        TableInfo.of(TABLE_ID, ExternalTableDefinition.newBuilder().setSchema(TABLE_SCHEMA).build())
+            .setProjectId(OTHER_PROJECT);
+
+    com.google.api.services.bigquery.model.Table expectedCreateInput =
+        createTableInfo.toPb().setSchema(TABLE_SCHEMA.toPb());
+    expectedCreateInput.getExternalDataConfiguration().setSchema(null);
+    when(bigqueryRpcMock.create(expectedCreateInput, EMPTY_RPC_OPTIONS))
+        .thenReturn(createTableInfo.toPb());
+    BigQueryOptions bigQueryOptions =
+        createBigQueryOptionsForProject(OTHER_PROJECT, rpcFactoryMock);
+    bigquery = bigQueryOptions.getService();
+    Table table = bigquery.create(createTableInfo);
+    assertEquals(new Table(bigquery, new TableInfo.BuilderImpl(createTableInfo)), table);
+    verify(bigqueryRpcMock).create(expectedCreateInput, EMPTY_RPC_OPTIONS);
   }
 
   @Test
@@ -1189,6 +1209,25 @@ public class BigQueryImplTest {
   }
 
   @Test
+  public void testUpdateExternalTableWithNewSchema() {
+    TableInfo updatedTableInfo =
+        TableInfo.of(TABLE_ID, ExternalTableDefinition.newBuilder().setSchema(TABLE_SCHEMA).build())
+            .setProjectId(OTHER_PROJECT);
+
+    com.google.api.services.bigquery.model.Table expectedPatchInput =
+        updatedTableInfo.toPb().setSchema(TABLE_SCHEMA.toPb());
+    expectedPatchInput.getExternalDataConfiguration().setSchema(null);
+    when(bigqueryRpcMock.patch(expectedPatchInput, EMPTY_RPC_OPTIONS))
+        .thenReturn(updatedTableInfo.toPb());
+    BigQueryOptions bigQueryOptions =
+        createBigQueryOptionsForProject(OTHER_PROJECT, rpcFactoryMock);
+    bigquery = bigQueryOptions.getService();
+    Table table = bigquery.update(updatedTableInfo);
+    assertEquals(new Table(bigquery, new TableInfo.BuilderImpl(updatedTableInfo)), table);
+    verify(bigqueryRpcMock).patch(expectedPatchInput, EMPTY_RPC_OPTIONS);
+  }
+
+  @Test
   public void testUpdateTableWithoutProject() {
     TableInfo tableInfo = TABLE_INFO.setProjectId(PROJECT);
     TableId tableId = TableId.of("", TABLE_ID.getDataset(), TABLE_ID.getTable());
@@ -1526,6 +1565,30 @@ public class BigQueryImplTest {
     assertThat(bigquery.create(JobInfo.of(jobId, QueryJobConfiguration.of(query)))).isNotNull();
     assertThat(jobCapture.getValue().getJobReference().getJobId()).isEqualTo(id);
     verify(bigqueryRpcMock).create(jobCapture.capture(), eq(EMPTY_RPC_OPTIONS));
+  }
+
+  @Test
+  public void testCreateJobFailureShouldRetry() {
+    when(bigqueryRpcMock.create(jobCapture.capture(), eq(EMPTY_RPC_OPTIONS)))
+        .thenThrow(new BigQueryException(500, "InternalError"))
+        .thenThrow(new BigQueryException(502, "Bad Gateway"))
+        .thenThrow(new BigQueryException(503, "Service Unavailable"))
+        .thenThrow(
+            new BigQueryException(
+                400, RATE_LIMIT_ERROR_MSG)) // retrial on based on RATE_LIMIT_EXCEEDED_MSG
+        .thenThrow(new BigQueryException(200, RATE_LIMIT_ERROR_MSG))
+        .thenReturn(newJobPb());
+
+    bigquery = options.getService();
+    bigquery =
+        options
+            .toBuilder()
+            .setRetrySettings(ServiceOptions.getDefaultRetrySettings())
+            .build()
+            .getService();
+
+    ((BigQueryImpl) bigquery).create(JobInfo.of(QUERY_JOB_CONFIGURATION_FOR_DMLQUERY));
+    verify(bigqueryRpcMock, times(6)).create(jobCapture.capture(), eq(EMPTY_RPC_OPTIONS));
   }
 
   @Test
@@ -2174,6 +2237,49 @@ public class BigQueryImplTest {
   }
 
   @Test
+  public void testGetQueryResultsRetry() {
+    JobId queryJob = JobId.of(JOB);
+    GetQueryResultsResponse responsePb =
+        new GetQueryResultsResponse()
+            .setEtag("etag")
+            .setJobReference(queryJob.toPb())
+            .setRows(ImmutableList.of(TABLE_ROW))
+            .setJobComplete(true)
+            .setCacheHit(false)
+            .setPageToken(CURSOR)
+            .setTotalBytesProcessed(42L)
+            .setTotalRows(BigInteger.valueOf(1L));
+
+    when(bigqueryRpcMock.getQueryResults(PROJECT, JOB, null, EMPTY_RPC_OPTIONS))
+        .thenThrow(new BigQueryException(500, "InternalError"))
+        .thenThrow(new BigQueryException(502, "Bad Gateway"))
+        .thenThrow(new BigQueryException(503, "Service Unavailable"))
+        .thenThrow(new BigQueryException(504, "Gateway Timeout"))
+        .thenThrow(
+            new BigQueryException(
+                400,
+                BigQueryErrorMessages
+                    .RATE_LIMIT_EXCEEDED_MSG)) // retrial on based on RATE_LIMIT_EXCEEDED_MSG
+        .thenReturn(responsePb);
+
+    bigquery =
+        options
+            .toBuilder()
+            .setRetrySettings(ServiceOptions.getDefaultRetrySettings())
+            .build()
+            .getService();
+
+    QueryResponse response = bigquery.getQueryResults(queryJob);
+    assertEquals(true, response.getCompleted());
+    assertEquals(null, response.getSchema());
+    // IMP: Unable to test for idempotency of the requests using getQueryResults(PROJECT, JOB, null,
+    // EMPTY_RPC_OPTIONS) as there is no
+    // identifier in this method which will can potentially differ and which can be used to
+    // establish idempotency
+    verify(bigqueryRpcMock, times(6)).getQueryResults(PROJECT, JOB, null, EMPTY_RPC_OPTIONS);
+  }
+
+  @Test
   public void testGetQueryResultsWithProject() {
     JobId queryJob = JobId.of(OTHER_PROJECT, JOB);
     GetQueryResultsResponse responsePb =
@@ -2375,6 +2481,78 @@ public class BigQueryImplTest {
     assertTrue(idempotent);
 
     verify(bigqueryRpcMock, times(5)).queryRpc(eq(PROJECT), requestPbCapture.capture());
+  }
+
+  @Test
+  public void testFastQueryRateLimitIdempotency() throws Exception {
+    com.google.api.services.bigquery.model.QueryResponse responsePb =
+        new com.google.api.services.bigquery.model.QueryResponse()
+            .setCacheHit(false)
+            .setJobComplete(true)
+            .setRows(ImmutableList.of(TABLE_ROW))
+            .setPageToken(null)
+            .setTotalBytesProcessed(42L)
+            .setNumDmlAffectedRows(1L)
+            .setSchema(TABLE_SCHEMA.toPb());
+
+    when(bigqueryRpcMock.queryRpc(eq(PROJECT), requestPbCapture.capture()))
+        .thenThrow(new BigQueryException(500, "InternalError"))
+        .thenThrow(new BigQueryException(502, "Bad Gateway"))
+        .thenThrow(new BigQueryException(503, "Service Unavailable"))
+        .thenThrow(new BigQueryException(504, "Gateway Timeout"))
+        .thenThrow(
+            new BigQueryException(
+                400, RATE_LIMIT_ERROR_MSG)) // retrial on based on RATE_LIMIT_EXCEEDED_MSG
+        .thenReturn(responsePb);
+
+    bigquery =
+        options
+            .toBuilder()
+            .setRetrySettings(ServiceOptions.getDefaultRetrySettings())
+            .build()
+            .getService();
+
+    TableResult response = bigquery.query(QUERY_JOB_CONFIGURATION_FOR_DMLQUERY);
+    assertEquals(TABLE_SCHEMA, response.getSchema());
+    assertEquals(1, response.getTotalRows());
+
+    List<QueryRequest> allRequests = requestPbCapture.getAllValues();
+    boolean idempotent = true;
+    String firstRequestId = allRequests.get(0).getRequestId();
+    for (QueryRequest request : allRequests) {
+      idempotent =
+          idempotent
+              && request
+                  .getRequestId()
+                  .equals(firstRequestId); // all the requestIds should be the same
+    }
+
+    assertTrue(idempotent);
+    verify(bigqueryRpcMock, times(6)).queryRpc(eq(PROJECT), requestPbCapture.capture());
+  }
+
+  @Test
+  public void testRateLimitRegEx() throws Exception {
+    String msg2 =
+        "Job eceeded rate limits: Your table exceeded quota for table update operations. For more information, see https://cloud.google.com/bigquery/docs/troubleshoot-quotas";
+    String msg3 = "exceeded rate exceeded quota for table update";
+    String msg4 = "exceeded rate limits";
+    assertTrue(
+        BigQueryRetryAlgorithm.matchRegEx(
+            BigQueryErrorMessages.RetryRegExPatterns.RATE_LIMIT_EXCEEDED_REGEX,
+            RATE_LIMIT_ERROR_MSG));
+    assertFalse(
+        BigQueryRetryAlgorithm.matchRegEx(
+            BigQueryErrorMessages.RetryRegExPatterns.RATE_LIMIT_EXCEEDED_REGEX,
+            msg2.toLowerCase()));
+    assertFalse(
+        BigQueryRetryAlgorithm.matchRegEx(
+            BigQueryErrorMessages.RetryRegExPatterns.RATE_LIMIT_EXCEEDED_REGEX,
+            msg3.toLowerCase()));
+    assertTrue(
+        BigQueryRetryAlgorithm.matchRegEx(
+            BigQueryErrorMessages.RetryRegExPatterns.RATE_LIMIT_EXCEEDED_REGEX,
+            msg4.toLowerCase()));
   }
 
   @Test
@@ -2648,6 +2826,23 @@ public class BigQueryImplTest {
     bigquery = options.getService();
     List<String> perms = bigquery.testIamPermissions(TABLE_ID, checkedPermissions);
     assertEquals(perms, grantedPermissions);
+    verify(bigqueryRpcMock).testIamPermissions(resourceId, checkedPermissions, EMPTY_RPC_OPTIONS);
+  }
+
+  @Test
+  public void testTestIamPermissionsWhenNoPermissionsGranted() {
+    final String resourceId =
+        String.format("projects/%s/datasets/%s/tables/%s", PROJECT, DATASET, TABLE);
+    final List<String> checkedPermissions = ImmutableList.<String>of("foo", "bar", "baz");
+    // If caller has no permissions, TestIamPermissionsResponse.permissions will be null
+    final com.google.api.services.bigquery.model.TestIamPermissionsResponse response =
+        new com.google.api.services.bigquery.model.TestIamPermissionsResponse()
+            .setPermissions(null);
+    when(bigqueryRpcMock.testIamPermissions(resourceId, checkedPermissions, EMPTY_RPC_OPTIONS))
+        .thenReturn(response);
+    bigquery = options.getService();
+    List<String> perms = bigquery.testIamPermissions(TABLE_ID, checkedPermissions);
+    assertEquals(perms, ImmutableList.of());
     verify(bigqueryRpcMock).testIamPermissions(resourceId, checkedPermissions, EMPTY_RPC_OPTIONS);
   }
 }

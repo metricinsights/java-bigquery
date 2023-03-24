@@ -72,6 +72,9 @@ public class TableInfo implements Serializable {
   private final EncryptionConfiguration encryptionConfiguration;
   private final Labels labels;
   private final Boolean requirePartitionFilter;
+  private final String defaultCollation;
+
+  private final CloneDefinition cloneDefinition;
 
   /** A builder for {@code TableInfo} objects. */
   public abstract static class Builder {
@@ -135,6 +138,10 @@ public class TableInfo implements Serializable {
     public Builder setRequirePartitionFilter(Boolean requirePartitionFilter) {
       return this;
     }
+
+    public abstract Builder setDefaultCollation(String defaultCollation);
+
+    public abstract Builder setCloneDefinition(CloneDefinition cloneDefinition);
   }
 
   static class BuilderImpl extends Builder {
@@ -155,6 +162,8 @@ public class TableInfo implements Serializable {
     private EncryptionConfiguration encryptionConfiguration;
     private Labels labels = Labels.ZERO;
     private Boolean requirePartitionFilter;
+    private String defaultCollation;
+    private CloneDefinition cloneDefinition;
 
     BuilderImpl() {}
 
@@ -175,6 +184,8 @@ public class TableInfo implements Serializable {
       this.encryptionConfiguration = tableInfo.encryptionConfiguration;
       this.labels = tableInfo.labels;
       this.requirePartitionFilter = tableInfo.requirePartitionFilter;
+      this.defaultCollation = tableInfo.defaultCollation;
+      this.cloneDefinition = tableInfo.cloneDefinition;
     }
 
     BuilderImpl(Table tablePb) {
@@ -199,6 +210,10 @@ public class TableInfo implements Serializable {
       }
       this.labels = Labels.fromPb(tablePb.getLabels());
       this.requirePartitionFilter = tablePb.getRequirePartitionFilter();
+      this.defaultCollation = tablePb.getDefaultCollation();
+      if (tablePb.getCloneDefinition() != null) {
+        this.cloneDefinition = CloneDefinition.fromPb(tablePb.getCloneDefinition());
+      }
     }
 
     @Override
@@ -298,6 +313,17 @@ public class TableInfo implements Serializable {
     }
 
     @Override
+    public Builder setDefaultCollation(String defaultCollation) {
+      this.defaultCollation = defaultCollation;
+      return this;
+    }
+
+    public Builder setCloneDefinition(CloneDefinition cloneDefinition) {
+      this.cloneDefinition = cloneDefinition;
+      return this;
+    }
+
+    @Override
     public TableInfo build() {
       return new TableInfo(this);
     }
@@ -318,8 +344,10 @@ public class TableInfo implements Serializable {
     this.numRows = builder.numRows;
     this.definition = builder.definition;
     this.encryptionConfiguration = builder.encryptionConfiguration;
-    labels = builder.labels;
+    this.labels = builder.labels;
     this.requirePartitionFilter = builder.requirePartitionFilter;
+    this.defaultCollation = builder.defaultCollation;
+    this.cloneDefinition = builder.cloneDefinition;
   }
 
   /** Returns the hash of the table resource. */
@@ -422,6 +450,14 @@ public class TableInfo implements Serializable {
     return requirePartitionFilter;
   }
 
+  public String getDefaultCollation() {
+    return defaultCollation;
+  }
+
+  public CloneDefinition getCloneDefinition() {
+    return cloneDefinition;
+  }
+
   /** Returns a builder for the table object. */
   public Builder toBuilder() {
     return new BuilderImpl(this);
@@ -446,6 +482,8 @@ public class TableInfo implements Serializable {
         .add("encryptionConfiguration", encryptionConfiguration)
         .add("labels", labels)
         .add("requirePartitionFilter", requirePartitionFilter)
+        .add("defaultCollation", defaultCollation)
+        .add("cloneDefinition", cloneDefinition)
         .toString();
   }
 
@@ -507,6 +545,12 @@ public class TableInfo implements Serializable {
     }
     tablePb.setLabels(labels.toPb());
     tablePb.setRequirePartitionFilter(requirePartitionFilter);
+    if (defaultCollation != null) {
+      tablePb.setDefaultCollation(defaultCollation);
+    }
+    if (cloneDefinition != null) {
+      tablePb.setCloneDefinition(cloneDefinition.toPb());
+    }
     return tablePb;
   }
 

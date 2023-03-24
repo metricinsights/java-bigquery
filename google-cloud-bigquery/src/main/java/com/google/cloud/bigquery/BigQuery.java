@@ -18,6 +18,7 @@ package com.google.cloud.bigquery;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import com.google.api.core.BetaApi;
 import com.google.api.core.InternalApi;
 import com.google.api.gax.paging.Page;
 import com.google.cloud.FieldSelector;
@@ -32,6 +33,7 @@ import com.google.common.collect.Lists;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * An interface for Google Cloud BigQuery.
@@ -259,6 +261,8 @@ public interface BigQuery extends Service<BigQueryOptions> {
     /**
      * Returns an option to specify a label filter. See
      * https://cloud.google.com/bigquery/docs/adding-using-labels#filtering_datasets_using_labels
+     *
+     * @param labelFilter In the form "labels.key:value"
      */
     public static DatasetListOption labelFilter(String labelFilter) {
       return new DatasetListOption(BigQueryRpc.Option.LABEL_FILTER, labelFilter);
@@ -291,7 +295,7 @@ public interface BigQuery extends Service<BigQueryOptions> {
 
     /**
      * Returns an option to specify the dataset's fields to be returned by the RPC call. If this
-     * option is not provided all dataset's fields are returned. {@code DatasetOption.fields} can be
+     * option is not provided all dataset's fields are returned. { code DatasetOption.fields} can be
      * used to specify only the fields of interest. {@link Dataset#getDatasetId()} is always
      * returned, even if not specified.
      */
@@ -807,6 +811,53 @@ public interface BigQuery extends Service<BigQueryOptions> {
   Job create(JobInfo jobInfo, JobOption... options);
 
   /**
+   * Creates a new BigQuery query connection used for executing queries (not the same as BigQuery
+   * connection properties). It uses the BigQuery Storage Read API for high throughput queries by
+   * default.
+   *
+   * <p>Example of creating a query connection.
+   *
+   * <pre>
+   * {
+   *   &#64;code
+   *       ConnectionSettings connectionSettings =
+   *         ConnectionSettings.newBuilder()
+   *             .setRequestTimeout(10L)
+   *             .setMaxResults(100L)
+   *             .setUseQueryCache(true)
+   *             .build();
+   *       Connection connection = bigquery.createConnection(connectionSettings);
+   * }
+   * </pre>
+   *
+   * @throws BigQueryException upon failure
+   * @param connectionSettings
+   */
+  @BetaApi
+  Connection createConnection(@NonNull ConnectionSettings connectionSettings);
+
+  /**
+   * Creates a new BigQuery query connection used for executing queries (not the same as BigQuery
+   * connection properties). It uses the BigQuery Storage Read API for high throughput queries by
+   * default. This overloaded method creates a Connection with default ConnectionSettings for query
+   * execution where default values are set for numBufferedRows (20000), useReadApi (true),
+   * useLegacySql (false).
+   *
+   * <p>Example of creating a query connection.
+   *
+   * <pre>
+   * {
+   *   &#64;code
+   *       Connection connection = bigquery.createConnection();
+   * }
+   * </pre>
+   *
+   * @throws BigQueryException upon failure
+   */
+  @BetaApi
+  Connection createConnection();
+
+  /**
    * Returns the requested dataset or {@code null} if not found.
    *
    * <p>Example of getting a dataset.
@@ -1042,6 +1093,14 @@ public interface BigQuery extends Service<BigQueryOptions> {
    * @throws BigQueryException upon failure
    */
   boolean delete(RoutineId routineId);
+
+  /**
+   * Deletes the requested job.
+   *
+   * @return {@code true} if job was deleted, {@code false} if it was not found
+   * @throws BigQueryException upon failure
+   */
+  boolean delete(JobId jobId);
 
   /**
    * Updates dataset information.

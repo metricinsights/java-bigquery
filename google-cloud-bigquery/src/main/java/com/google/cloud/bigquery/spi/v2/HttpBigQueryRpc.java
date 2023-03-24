@@ -30,7 +30,7 @@ import com.google.api.client.http.HttpResponseException;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.json.JsonHttpContent;
 import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.core.InternalApi;
 import com.google.api.core.InternalExtensionOnly;
 import com.google.api.services.bigquery.Bigquery;
@@ -92,7 +92,7 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     HttpRequestInitializer initializer = transportOptions.getHttpRequestInitializer(options);
     this.options = options;
     bigquery =
-        new Bigquery.Builder(transport, new JacksonFactory(), initializer)
+        new Bigquery.Builder(transport, new GsonFactory(), initializer)
             .setRootUrl(options.getHost())
             .setApplicationName(options.getApplicationName())
             .build();
@@ -223,6 +223,19 @@ public class HttpBigQueryRpc implements BigQueryRpc {
           .setPrettyPrint(false)
           .setFields(Option.FIELDS.getString(options))
           .execute();
+    } catch (IOException ex) {
+      throw translate(ex);
+    }
+  }
+
+  @Override
+  public Job createJobForQuery(Job job) {
+    try {
+      String projectId =
+          job.getJobReference() != null
+              ? job.getJobReference().getProjectId()
+              : this.options.getProjectId();
+      return bigquery.jobs().insert(projectId, job).setPrettyPrint(false).execute();
     } catch (IOException ex) {
       throw translate(ex);
     }
@@ -523,6 +536,26 @@ public class HttpBigQueryRpc implements BigQueryRpc {
   }
 
   @Override
+  public TableDataList listTableDataWithRowLimit(
+      String projectId,
+      String datasetId,
+      String tableId,
+      Integer maxResultPerPage,
+      String pageToken) {
+    try {
+      return bigquery
+          .tabledata()
+          .list(projectId, datasetId, tableId)
+          .setPrettyPrint(false)
+          .setMaxResults(Long.valueOf(maxResultPerPage))
+          .setPageToken(pageToken)
+          .execute();
+    } catch (IOException ex) {
+      throw translate(ex);
+    }
+  }
+
+  @Override
   public Job getJob(String projectId, String jobId, String location, Map<Option, ?> options) {
     try {
       return bigquery
@@ -531,6 +564,24 @@ public class HttpBigQueryRpc implements BigQueryRpc {
           .setPrettyPrint(false)
           .setLocation(location)
           .setFields(Option.FIELDS.getString(options))
+          .execute();
+    } catch (IOException ex) {
+      BigQueryException serviceException = translate(ex);
+      if (serviceException.getCode() == HTTP_NOT_FOUND) {
+        return null;
+      }
+      throw serviceException;
+    }
+  }
+
+  @Override
+  public Job getQueryJob(String projectId, String jobId, String location) {
+    try {
+      return bigquery
+          .jobs()
+          .get(projectId, jobId)
+          .setPrettyPrint(false)
+          .setLocation(location)
           .execute();
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
@@ -615,6 +666,21 @@ public class HttpBigQueryRpc implements BigQueryRpc {
   }
 
   @Override
+  public boolean deleteJob(String projectId, String jobName, String location) {
+    try {
+      bigquery
+          .jobs()
+          .delete(projectId, jobName)
+          .setLocation(location)
+          .setPrettyPrint(false)
+          .execute();
+      return true;
+    } catch (IOException ex) {
+      throw translate(ex);
+    }
+  }
+
+  @Override
   public GetQueryResultsResponse getQueryResults(
       String projectId, String jobId, String location, Map<Option, ?> options) {
     try {
@@ -630,6 +696,23 @@ public class HttpBigQueryRpc implements BigQueryRpc {
                   ? BigInteger.valueOf(Option.START_INDEX.getLong(options))
                   : null)
           .setTimeoutMs(Option.TIMEOUT.getLong(options))
+          .execute();
+    } catch (IOException ex) {
+      throw translate(ex);
+    }
+  }
+
+  @Override
+  public GetQueryResultsResponse getQueryResultsWithRowLimit(
+      String projectId, String jobId, String location, Integer maxResultPerPage, Long timeoutMs) {
+    try {
+      return bigquery
+          .jobs()
+          .getQueryResults(projectId, jobId)
+          .setPrettyPrint(false)
+          .setLocation(location)
+          .setMaxResults(Long.valueOf(maxResultPerPage))
+          .setTimeoutMs(timeoutMs)
           .execute();
     } catch (IOException ex) {
       throw translate(ex);

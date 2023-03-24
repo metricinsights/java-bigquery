@@ -16,8 +16,8 @@
 
 package com.google.cloud.bigquery;
 
-import static org.assertj.core.api.Assertions.*;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 
 import com.google.api.services.bigquery.model.QueryRequest;
 import com.google.cloud.bigquery.JobInfo.CreateDisposition;
@@ -74,6 +74,7 @@ public class QueryRequestInfoTest {
   private static final WriteDisposition WRITE_DISPOSITION = WriteDisposition.WRITE_APPEND;
   private static final Priority PRIORITY = Priority.BATCH;
   private static final boolean ALLOW_LARGE_RESULTS = true;
+  private static final boolean CREATE_SESSION = true;
   private static final boolean USE_QUERY_CACHE = false;
   private static final boolean FLATTEN_RESULTS = true;
   private static final boolean USE_LEGACY_SQL = true;
@@ -142,14 +143,19 @@ public class QueryRequestInfoTest {
           .setLabels(LABELS)
           .setConnectionProperties(CONNECTION_PROPERTIES)
           .setPositionalParameters(POSITIONAL_PARAMETER)
+          .setCreateSession(CREATE_SESSION)
           .setMaxResults(100L)
           .build();
   QueryRequestInfo REQUEST_INFO_SUPPORTED = new QueryRequestInfo(QUERY_JOB_CONFIGURATION_SUPPORTED);
 
   @Test
   public void testIsFastQuerySupported() {
-    assertEquals(false, REQUEST_INFO.isFastQuerySupported());
-    assertEquals(true, REQUEST_INFO_SUPPORTED.isFastQuerySupported());
+    JobId jobIdSupported = JobId.newBuilder().build();
+    JobId jobIdNotSupported = JobId.newBuilder().setJob("random-job-id").build();
+    assertEquals(false, REQUEST_INFO.isFastQuerySupported(jobIdSupported));
+    assertEquals(true, REQUEST_INFO_SUPPORTED.isFastQuerySupported(jobIdSupported));
+    assertEquals(false, REQUEST_INFO.isFastQuerySupported(jobIdNotSupported));
+    assertEquals(false, REQUEST_INFO_SUPPORTED.isFastQuerySupported(jobIdNotSupported));
   }
 
   @Test
@@ -165,8 +171,28 @@ public class QueryRequestInfoTest {
     compareQueryRequestInfo(new QueryRequestInfo(QUERY_JOB_CONFIGURATION), REQUEST_INFO);
   }
 
+  /*
+  Ref: https://github.com/googleapis/java-bigquery/issues/2083
+  Refactoring to remove the assert4j dependency which was causing RequireUpperBoundDeps Error
+   */
   private void compareQueryRequestInfo(QueryRequestInfo expected, QueryRequestInfo actual) {
+    QueryRequest expectedQueryReq = expected.toPb();
+    QueryRequest actualQueryReq = actual.toPb();
+
     // requestId are expected to be different
-    assertThat(actual).isEqualToIgnoringGivenFields(expected, "requestId");
+    assertNotEquals(expectedQueryReq.getRequestId(), actualQueryReq.getRequestId());
+    // rest of the attributes should be equal
+    assertEquals(
+        expectedQueryReq.getConnectionProperties(), actualQueryReq.getConnectionProperties());
+    assertEquals(expectedQueryReq.getDefaultDataset(), actualQueryReq.getDefaultDataset());
+    assertEquals(expectedQueryReq.getDryRun(), actualQueryReq.getDryRun());
+    assertEquals(expectedQueryReq.getLabels(), actualQueryReq.getLabels());
+    assertEquals(expectedQueryReq.getMaximumBytesBilled(), actualQueryReq.getMaximumBytesBilled());
+    assertEquals(expectedQueryReq.getMaxResults(), actualQueryReq.getMaxResults());
+    assertEquals(expectedQueryReq.getQuery(), actualQueryReq.getQuery());
+    assertEquals(expectedQueryReq.getQueryParameters(), actualQueryReq.getQueryParameters());
+    assertEquals(expectedQueryReq.getCreateSession(), actualQueryReq.getCreateSession());
+    assertEquals(expectedQueryReq.getUseQueryCache(), actualQueryReq.getUseQueryCache());
+    assertEquals(expectedQueryReq.getUseLegacySql(), actualQueryReq.getUseLegacySql());
   }
 }

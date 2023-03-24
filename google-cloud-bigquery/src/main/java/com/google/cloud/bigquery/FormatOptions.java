@@ -91,8 +91,8 @@ public class FormatOptions implements Serializable {
   }
 
   /** Default options for AVRO format. */
-  public static FormatOptions avro() {
-    return new FormatOptions(AVRO);
+  public static AvroOptions avro() {
+    return AvroOptions.newBuilder().build();
   }
 
   /** Default options for BIGTABLE format. */
@@ -107,7 +107,7 @@ public class FormatOptions implements Serializable {
 
   /** Default options for PARQUET format. */
   public static FormatOptions parquet() {
-    return new FormatOptions(PARQUET);
+    return ParquetOptions.newBuilder().build();
   }
 
   /** Default options for the ORC format. */
@@ -120,12 +120,16 @@ public class FormatOptions implements Serializable {
     checkArgument(!isNullOrEmpty(format), "Provided format is null or empty");
     if (format.equals(CSV)) {
       return csv();
+    } else if (format.equals(AVRO)) {
+      return avro();
     } else if (format.equals(DATASTORE_BACKUP)) {
       return datastoreBackup();
     } else if (format.equals(GOOGLE_SHEETS)) {
       return googleSheets();
     } else if (format.equals(BIGTABLE)) {
       return bigtable();
+    } else if (format.equals(PARQUET)) {
+      return parquet();
     }
     return new FormatOptions(format);
   }

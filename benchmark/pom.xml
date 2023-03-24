@@ -6,12 +6,12 @@
   <parent>
     <artifactId>google-cloud-bigquery-parent</artifactId>
     <groupId>com.google.cloud</groupId>
-    <version>1.128.4-mi</version><!-- {x-version-update:google-cloud-bigquery:current} -->
+    <version>2.24.3-mi</version><!-- {x-version-update:google-cloud-bigquery:current} -->
   </parent>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jmh.version>1.28</jmh.version>
+    <jmh.version>1.36</jmh.version>
     <uberjar.name>benchmark</uberjar.name>
   </properties>
 
@@ -37,12 +37,12 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.8.1</version>
+        <version>3.11.0</version>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3.2.4</version>
+        <version>3.4.1</version>
         <executions>
           <execution>
             <phase>package</phase>
@@ -75,7 +75,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
-        <version>2.8.2</version>
+        <version>3.1.0</version>
         <configuration>
           <skip>true</skip>
         </configuration>
@@ -83,7 +83,7 @@
       <plugin>
         <groupId>org.sonatype.plugins</groupId>
         <artifactId>nexus-staging-maven-plugin</artifactId>
-        <version>1.6.8</version>
+        <version>1.6.13</version>
         <configuration>
           <skipNexusStagingDeployMojo>true</skipNexusStagingDeployMojo>
         </configuration>

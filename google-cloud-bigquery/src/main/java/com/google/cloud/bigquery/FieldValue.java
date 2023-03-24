@@ -18,6 +18,7 @@ package com.google.cloud.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.time.temporal.ChronoUnit.MICROS;
 
 import com.google.api.client.util.Data;
 import com.google.api.core.BetaApi;
@@ -25,6 +26,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.io.BaseEncoding;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -35,6 +38,7 @@ import java.util.Objects;
  * query or when listing table data.
  */
 public class FieldValue implements Serializable {
+
   private static final int MICROSECONDS = 1000000;
   private static final long serialVersionUID = 469098630191710061L;
 
@@ -183,8 +187,26 @@ public class FieldValue implements Serializable {
     // timestamps are encoded in the format 1408452095.22 where the integer part is seconds since
     // epoch (e.g. 1408452095.22 == 2014-08-19 07:41:35.220 -05:00)
     BigDecimal secondsWithMicro = new BigDecimal(getStringValue());
-    BigDecimal scaled = secondsWithMicro.scaleByPowerOfTen(6);
+    // Rounding the BigDecimal to the nearest whole number before setting the longValue in order to
+    // address TimeStamp rounding issue described in
+    // https://github.com/googleapis/java-bigquery/issues/1644
+    BigDecimal scaled = secondsWithMicro.scaleByPowerOfTen(6).setScale(0, RoundingMode.HALF_UP);
     return scaled.longValue();
+  }
+
+  /**
+   * Returns this field's value as a {@code String}, representing a timestamp as an Instant. This
+   * method should only be used if the corresponding field has {@link LegacySQLTypeName#TIMESTAMP}
+   * type.
+   *
+   * @throws ClassCastException if the field is not a primitive type
+   * @throws NumberFormatException if the field's value could not be converted to {@link Long}
+   * @throws NullPointerException if {@link #isNull()} returns {@code true}
+   */
+  @SuppressWarnings("unchecked")
+  public Instant getTimestampInstant() {
+    checkNotNull(value);
+    return Instant.EPOCH.plus(getTimestampValue(), MICROS);
   }
 
   /**

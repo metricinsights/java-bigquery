@@ -37,6 +37,7 @@ final class QueryRequestInfo {
   private final String query;
   private final List<QueryParameter> queryParameters;
   private final String requestId;
+  private final Boolean createSession;
   private final Boolean useQueryCache;
   private final Boolean useLegacySql;
 
@@ -51,11 +52,20 @@ final class QueryRequestInfo {
     this.query = config.getQuery();
     this.queryParameters = config.toPb().getQuery().getQueryParameters();
     this.requestId = UUID.randomUUID().toString();
+    this.createSession = config.createSession();
     this.useLegacySql = config.useLegacySql();
     this.useQueryCache = config.useQueryCache();
   }
 
-  boolean isFastQuerySupported() {
+  boolean isFastQuerySupported(JobId jobId) {
+    // Fast query path is not possible if job is specified in the JobID object
+    // Respect Job field value in JobId specified by user.
+    // Specifying it will force the query to take the slower path.
+    if (jobId != null) {
+      if (jobId.getJob() != null) {
+        return false;
+      }
+    }
     return config.getClustering() == null
         && config.getCreateDisposition() == null
         && config.getDestinationEncryptionConfiguration() == null
@@ -97,6 +107,9 @@ final class QueryRequestInfo {
     if (queryParameters != null) {
       request.setQueryParameters(queryParameters);
     }
+    if (createSession != null) {
+      request.setCreateSession(createSession);
+    }
     if (useLegacySql != null) {
       request.setUseLegacySql(useLegacySql);
     }
@@ -118,6 +131,7 @@ final class QueryRequestInfo {
         .add("query", query)
         .add("requestId", requestId)
         .add("queryParameters", queryParameters)
+        .add("createSession", createSession)
         .add("useQueryCache", useQueryCache)
         .add("useLegacySql", useLegacySql)
         .toString();
@@ -135,6 +149,7 @@ final class QueryRequestInfo {
         query,
         queryParameters,
         requestId,
+        createSession,
         useQueryCache,
         useLegacySql);
   }
