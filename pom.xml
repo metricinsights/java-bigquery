@@ -196,12 +196,19 @@
           </ignoredUnusedDeclaredDependencies>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.sonatype.plugins</groupId>
+        <artifactId>nexus-staging-maven-plugin</artifactId>
+        <configuration>
+          <skipNexusStagingDeployMojo>true</skipNexusStagingDeployMojo>
+        </configuration>
+      </plugin>
     </plugins>
     <extensions>
       <extension>
-        <artifactId>wagon-ssh-external</artifactId>
-        <version>2.4</version>
         <groupId>org.apache.maven.wagon</groupId>
+        <artifactId>wagon-ssh-external</artifactId>
+        <version>3.5.3</version>
       </extension>
     </extensions>
   </build>
