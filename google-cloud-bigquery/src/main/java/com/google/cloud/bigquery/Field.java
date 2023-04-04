@@ -59,6 +59,11 @@ public final class Field implements Serializable {
   private final String mode;
   private final String description;
   private final PolicyTags policyTags;
+  private final Long maxLength;
+  private final Long scale;
+  private final Long precision;
+  private final String defaultValueExpression;
+  private final String collation;
 
   /**
    * Mode for a BigQuery Table field. {@link Mode#NULLABLE} fields can be set to {@code null},
@@ -79,6 +84,11 @@ public final class Field implements Serializable {
     private String mode;
     private String description;
     private PolicyTags policyTags;
+    private Long maxLength;
+    private Long scale;
+    private Long precision;
+    private String defaultValueExpression;
+    private String collation;
 
     private Builder() {}
 
@@ -89,6 +99,11 @@ public final class Field implements Serializable {
       this.mode = field.mode;
       this.description = field.description;
       this.policyTags = field.policyTags;
+      this.maxLength = field.maxLength;
+      this.scale = field.scale;
+      this.precision = field.precision;
+      this.defaultValueExpression = field.defaultValueExpression;
+      this.collation = field.collation;
     }
 
     /**
@@ -199,6 +214,93 @@ public final class Field implements Serializable {
       return this;
     }
 
+    /**
+     * Sets the maximum length of the field for STRING or BYTES type.
+     *
+     * <p>It is invalid to set value for types other than STRING or BYTES.
+     *
+     * <p>For STRING type, this represents the maximum UTF-8 length of strings allowed in the field.
+     * For BYTES type, this represents the maximum number of bytes in the field.
+     */
+    public Builder setMaxLength(Long maxLength) {
+      this.maxLength = maxLength;
+      return this;
+    }
+
+    /**
+     * Scale can be used to constrain the maximum number of digits in the fractional part of a
+     * NUMERIC or BIGNUMERIC type. If the Scale value is set, the Precision value must be set as
+     * well. It is invalid to set values for Scale for types other than NUMERIC or BIGNUMERIC. See
+     * the Precision field for additional guidance about valid values.
+     */
+    public Builder setScale(Long scale) {
+      this.scale = scale;
+      return this;
+    }
+
+    /**
+     * Precision can be used to constrain the maximum number of total digits allowed for NUMERIC or
+     * BIGNUMERIC types. It is invalid to set values for Precision for types other than // NUMERIC
+     * or BIGNUMERIC. For NUMERIC type, acceptable values for Precision must be: 1 ≤ (Precision -
+     * Scale) ≤ 29. Values for Scale must be: 0 ≤ Scale ≤ 9. For BIGNUMERIC type, acceptable values
+     * for Precision must be: 1 ≤ (Precision - Scale) ≤ 38. Values for Scale must be: 0 ≤ Scale ≤
+     * 38.
+     */
+    public Builder setPrecision(Long precision) {
+      this.precision = precision;
+      return this;
+    }
+
+    /**
+     * DefaultValueExpression is used to specify the default value of a field using a SQL
+     * expression. It can only be set for top level fields (columns).
+     *
+     * <p>You can use struct or array expression to specify default value for the entire struct or
+     * array. The valid SQL expressions are:
+     *
+     * <ul>
+     *   <ul>
+     *     <li>Literals for all data types, including STRUCT and ARRAY.
+     *   </ul>
+     *   <ul>
+     *     <li>The following functions:
+     *         <ul>
+     *           <li>CURRENT_TIMESTAMP
+     *           <li>CURRENT_TIME
+     *           <li>CURRENT_DATE
+     *           <li>CURRENT_DATETIME
+     *           <li>GENERATE_UUID
+     *           <li>RAND
+     *           <li>SESSION_USER
+     *           <li>ST_GEOGPOINT
+     *         </ul>
+     *   </ul>
+     *   <ul>
+     *     <li>Struct or array composed with the above allowed functions, for example:
+     *         <ul>
+     *           <li>"[CURRENT_DATE(), DATE '2020-01-01']"
+     *         </ul>
+     *   </ul>
+     * </ul>
+     */
+    public Builder setDefaultValueExpression(String defaultValueExpression) {
+      this.defaultValueExpression = defaultValueExpression;
+      return this;
+    }
+
+    /**
+     * Optional. Field collation can be set only when the type of field is STRING. The following
+     * values are supported:
+     *
+     * <p>* 'und:ci': undetermined locale, case insensitive. * '': empty string. Default to
+     * case-sensitive behavior. (-- A wrapper is used here because it is possible to set the value
+     * to the empty string. --)
+     */
+    public Builder setCollation(String collation) {
+      this.collation = collation;
+      return this;
+    }
+
     /** Creates a {@code Field} object. */
     public Field build() {
       return new Field(this);
@@ -212,6 +314,11 @@ public final class Field implements Serializable {
     this.mode = builder.mode;
     this.description = builder.description;
     this.policyTags = builder.policyTags;
+    this.maxLength = builder.maxLength;
+    this.scale = builder.scale;
+    this.precision = builder.precision;
+    this.defaultValueExpression = builder.defaultValueExpression;
+    this.collation = builder.collation;
   }
 
   /** Returns the field name. */
@@ -244,6 +351,33 @@ public final class Field implements Serializable {
     return policyTags;
   }
 
+  /** Returns the maximum length of the field for STRING or BYTES type. */
+  public Long getMaxLength() {
+    return maxLength;
+  }
+
+  /**
+   * Returns the maximum number of digits set in the fractional part of a NUMERIC or BIGNUMERIC
+   * type.
+   */
+  public Long getScale() {
+    return scale;
+  }
+
+  /** Returns the maximum number of total digits allowed for NUMERIC or BIGNUMERIC types. */
+  public Long getPrecision() {
+    return precision;
+  }
+
+  /** Return the default value of the field. */
+  public String getDefaultValueExpression() {
+    return defaultValueExpression;
+  }
+
+  public String getCollation() {
+    return collation;
+  }
+
   /**
    * Returns the list of sub-fields if {@link #getType()} is a {@link LegacySQLTypeName#RECORD}.
    * Returns {@code null} otherwise.
@@ -265,6 +399,11 @@ public final class Field implements Serializable {
         .add("mode", mode)
         .add("description", description)
         .add("policyTags", policyTags)
+        .add("maxLength", maxLength)
+        .add("scale", scale)
+        .add("precision", precision)
+        .add("defaultValueExpression", defaultValueExpression)
+        .add("collation", collation)
         .toString();
   }
 
@@ -335,9 +474,24 @@ public final class Field implements Serializable {
     if (policyTags != null) {
       fieldSchemaPb.setPolicyTags(policyTags.toPb());
     }
+    if (maxLength != null) {
+      fieldSchemaPb.setMaxLength(maxLength);
+    }
+    if (scale != null) {
+      fieldSchemaPb.setScale(scale);
+    }
+    if (precision != null) {
+      fieldSchemaPb.setPrecision(precision);
+    }
+    if (defaultValueExpression != null) {
+      fieldSchemaPb.setDefaultValueExpression(defaultValueExpression);
+    }
     if (getSubFields() != null) {
       List<TableFieldSchema> fieldsPb = Lists.transform(getSubFields(), TO_PB_FUNCTION);
       fieldSchemaPb.setFields(fieldsPb);
+    }
+    if (collation != null) {
+      fieldSchemaPb.setCollation(collation);
     }
     return fieldSchemaPb;
   }
@@ -354,11 +508,26 @@ public final class Field implements Serializable {
     if (fieldSchemaPb.getPolicyTags() != null) {
       fieldBuilder.setPolicyTags(PolicyTags.fromPb(fieldSchemaPb.getPolicyTags()));
     }
+    if (fieldSchemaPb.getMaxLength() != null) {
+      fieldBuilder.setMaxLength(fieldSchemaPb.getMaxLength());
+    }
+    if (fieldSchemaPb.getScale() != null) {
+      fieldBuilder.setScale(fieldSchemaPb.getScale());
+    }
+    if (fieldSchemaPb.getPrecision() != null) {
+      fieldBuilder.setPrecision(fieldSchemaPb.getPrecision());
+    }
+    if (fieldSchemaPb.getDefaultValueExpression() != null) {
+      fieldBuilder.setDefaultValueExpression(fieldSchemaPb.getDefaultValueExpression());
+    }
     FieldList subFields =
         fieldSchemaPb.getFields() != null
             ? FieldList.of(Lists.transform(fieldSchemaPb.getFields(), FROM_PB_FUNCTION))
             : null;
     fieldBuilder.setType(LegacySQLTypeName.valueOf(fieldSchemaPb.getType()), subFields);
+    if (fieldSchemaPb.getCollation() != null) {
+      fieldBuilder.setCollation(fieldSchemaPb.getCollation());
+    }
     return fieldBuilder.build();
   }
 }

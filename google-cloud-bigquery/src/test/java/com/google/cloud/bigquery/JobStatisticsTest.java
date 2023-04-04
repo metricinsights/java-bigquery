@@ -26,13 +26,26 @@ import com.google.cloud.bigquery.JobStatistics.QueryStatistics;
 import com.google.cloud.bigquery.JobStatistics.ReservationUsage;
 import com.google.cloud.bigquery.JobStatistics.ScriptStatistics;
 import com.google.cloud.bigquery.JobStatistics.ScriptStatistics.ScriptStackFrame;
+import com.google.cloud.bigquery.JobStatistics.SessionInfo;
+import com.google.cloud.bigquery.JobStatistics.TransactionInfo;
 import com.google.cloud.bigquery.QueryStage.QueryStep;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
+import java.util.UUID;
 import org.junit.Test;
 
 public class JobStatisticsTest {
 
+  private static final BiEngineReason BI_ENGINE_REASON =
+      BiEngineReason.newBuilder()
+          .setMessage("Detected unsupported join type")
+          .setCode("UNSUPPORTED_SQL_TEXT")
+          .build();
+  private static final BiEngineStats BI_ENGINE_STATS =
+      BiEngineStats.newBuilder()
+          .setBiEngineReasons(ImmutableList.of(BI_ENGINE_REASON))
+          .setBiEngineMode("DISABLED")
+          .build();
   private static final Integer BILLING_TIER = 42;
   private static final Boolean CACHE_HIT = true;
   private static final String DDL_OPERATION_PERFORMED = "SKIP";
@@ -42,6 +55,15 @@ public class JobStatisticsTest {
   private static final RoutineId DDL_TARGET_ROUTINE = RoutineId.of("alpha", "beta", "gamma");
   private static final Long ESTIMATE_BYTES_PROCESSED = 101L;
   private static final Long NUM_DML_AFFECTED_ROWS = 88L;
+  private static final Long DELETED_ROW_COUNT = 10L;
+  private static final Long INSERTED_ROW_COUNT = 20L;
+  private static final Long UPDATED_ROW_COUNT = 30L;
+  private static final DmlStats DML_STATS =
+      DmlStats.newBuilder()
+          .setDeletedRowCount(DELETED_ROW_COUNT)
+          .setInsertedRowCount(INSERTED_ROW_COUNT)
+          .setUpdatedRowCount(UPDATED_ROW_COUNT)
+          .build();
   private static final QueryStatistics.StatementType STATEMENT_TYPE =
       QueryStatistics.StatementType.SELECT;
   private static final Long TOTAL_BYTES_BILLED = 24L;
@@ -61,6 +83,8 @@ public class JobStatisticsTest {
   private static final Long START_TIME = 15L;
   private static final String NAME = "reservation-name";
   private static final Long SLOTMS = 12545L;
+  private static final String TRANSACTION_ID = UUID.randomUUID().toString().substring(0, 8);
+  private static final String SESSION_ID = UUID.randomUUID().toString().substring(0, 8);
   private static final CopyStatistics COPY_STATISTICS =
       CopyStatistics.newBuilder()
           .setCreationTimestamp(CREATION_TIME)
@@ -140,6 +164,7 @@ public class JobStatisticsTest {
           .setCreationTimestamp(CREATION_TIME)
           .setEndTime(END_TIME)
           .setStartTime(START_TIME)
+          .setBiEngineStats(BI_ENGINE_STATS)
           .setBillingTier(BILLING_TIER)
           .setCacheHit(CACHE_HIT)
           .setDDLOperationPerformed(DDL_OPERATION_PERFORMED)
@@ -147,6 +172,7 @@ public class JobStatisticsTest {
           .setDDLTargetRoutine(DDL_TARGET_ROUTINE)
           .setEstimatedBytesProcessed(ESTIMATE_BYTES_PROCESSED)
           .setNumDmlAffectedRows(NUM_DML_AFFECTED_ROWS)
+          .setDmlStats(DML_STATS)
           .setReferenceTables(REFERENCED_TABLES)
           .setStatementType(STATEMENT_TYPE)
           .setTotalBytesBilled(TOTAL_BYTES_BILLED)
@@ -206,6 +232,12 @@ public class JobStatisticsTest {
   private static final ReservationUsage RESERVATION_USAGE =
       ReservationUsage.newBuilder().setName(NAME).setSlotMs(SLOTMS).build();
 
+  private static final TransactionInfo TRANSACTION_INFO =
+      TransactionInfo.newbuilder().setTransactionId(TRANSACTION_ID).build();
+
+  private static final SessionInfo SESSION_INFO =
+      SessionInfo.newBuilder().setSessionId(SESSION_ID).build();
+
   @Test
   public void testBuilder() {
     assertEquals(CREATION_TIME, EXTRACT_STATISTICS.getCreationTime());
@@ -225,6 +257,7 @@ public class JobStatisticsTest {
     assertEquals(CREATION_TIME, QUERY_STATISTICS.getCreationTime());
     assertEquals(START_TIME, QUERY_STATISTICS.getStartTime());
     assertEquals(END_TIME, QUERY_STATISTICS.getEndTime());
+    assertEquals(BI_ENGINE_STATS, QUERY_STATISTICS.getBiEngineStats());
     assertEquals(BILLING_TIER, QUERY_STATISTICS.getBillingTier());
     assertEquals(CACHE_HIT, QUERY_STATISTICS.getCacheHit());
     assertEquals(DDL_OPERATION_PERFORMED, QUERY_STATISTICS.getDdlOperationPerformed());
@@ -232,6 +265,7 @@ public class JobStatisticsTest {
     assertEquals(DDL_TARGET_ROUTINE, QUERY_STATISTICS.getDdlTargetRoutine());
     assertEquals(ESTIMATE_BYTES_PROCESSED, QUERY_STATISTICS.getEstimatedBytesProcessed());
     assertEquals(NUM_DML_AFFECTED_ROWS, QUERY_STATISTICS.getNumDmlAffectedRows());
+    assertEquals(DML_STATS, QUERY_STATISTICS.getDmlStats());
     assertEquals(REFERENCED_TABLES, QUERY_STATISTICS.getReferencedTables());
     assertEquals(STATEMENT_TYPE, QUERY_STATISTICS.getStatementType());
     assertEquals(TOTAL_BYTES_BILLED, QUERY_STATISTICS.getTotalBytesBilled());
@@ -275,6 +309,8 @@ public class JobStatisticsTest {
         ImmutableList.of(EXPRESSION_STACK_FRAME), EXPRESSION_SCRIPT_STATISTICS.getStackFrames());
     assertEquals(NAME, RESERVATION_USAGE.getName());
     assertEquals(SLOTMS, RESERVATION_USAGE.getSlotMs());
+    assertEquals(TRANSACTION_ID, TRANSACTION_INFO.getTransactionId());
+    assertEquals(SESSION_ID, SESSION_INFO.getSessionId());
   }
 
   @Test
@@ -300,6 +336,8 @@ public class JobStatisticsTest {
       compareStackFrames(stackFrame, ScriptStackFrame.fromPb(stackFrame.toPb()));
     }
     compareReservation(RESERVATION_USAGE, ReservationUsage.fromPb(RESERVATION_USAGE.toPb()));
+    compareTransactionInfo(TRANSACTION_INFO, TransactionInfo.fromPb(TRANSACTION_INFO.toPb()));
+    compareSessionInfo(SESSION_INFO, SessionInfo.fromPb(SESSION_INFO.toPb()));
   }
 
   @Test
@@ -311,26 +349,31 @@ public class JobStatisticsTest {
                 new com.google.api.services.bigquery.model.JobStatistics()
                     .setCreationTime(1234L)
                     .setStartTime(5678L));
+    JobStatistics jobStatistics;
 
     job.setConfiguration(
         new com.google.api.services.bigquery.model.JobConfiguration()
             .setCopy(new com.google.api.services.bigquery.model.JobConfigurationTableCopy()));
-    assertThat(JobStatistics.fromPb(job)).isInstanceOf(CopyStatistics.class);
+    jobStatistics = JobStatistics.fromPb(job);
+    assertThat(jobStatistics).isInstanceOf(CopyStatistics.class);
 
     job.setConfiguration(
         new com.google.api.services.bigquery.model.JobConfiguration()
             .setLoad(new com.google.api.services.bigquery.model.JobConfigurationLoad()));
-    assertThat(JobStatistics.fromPb(job)).isInstanceOf(LoadStatistics.class);
+    jobStatistics = JobStatistics.fromPb(job);
+    assertThat(jobStatistics).isInstanceOf(LoadStatistics.class);
 
     job.setConfiguration(
         new com.google.api.services.bigquery.model.JobConfiguration()
             .setExtract(new com.google.api.services.bigquery.model.JobConfigurationExtract()));
-    assertThat(JobStatistics.fromPb(job)).isInstanceOf(ExtractStatistics.class);
+    jobStatistics = JobStatistics.fromPb(job);
+    assertThat(jobStatistics).isInstanceOf(ExtractStatistics.class);
 
     job.setConfiguration(
         new com.google.api.services.bigquery.model.JobConfiguration()
             .setQuery(new com.google.api.services.bigquery.model.JobConfigurationQuery()));
-    assertThat(JobStatistics.fromPb(job)).isInstanceOf(QueryStatistics.class);
+    jobStatistics = JobStatistics.fromPb(job);
+    assertThat(jobStatistics).isInstanceOf(QueryStatistics.class);
   }
 
   private void compareExtractStatistics(ExtractStatistics expected, ExtractStatistics value) {
@@ -408,5 +451,21 @@ public class JobStatisticsTest {
     assertEquals(expected.toPb(), value.toPb());
     assertEquals(expected.getName(), value.getName());
     assertEquals(expected.getSlotMs(), value.getSlotMs());
+  }
+
+  private void compareTransactionInfo(TransactionInfo expected, TransactionInfo value) {
+    assertEquals(expected, value);
+    assertEquals(expected.hashCode(), value.hashCode());
+    assertEquals(expected.toString(), value.toString());
+    assertEquals(expected.toPb(), value.toPb());
+    assertEquals(expected.getTransactionId(), value.getTransactionId());
+  }
+
+  private void compareSessionInfo(SessionInfo expected, SessionInfo value) {
+    assertEquals(expected, value);
+    assertEquals(expected.hashCode(), value.hashCode());
+    assertEquals(expected.toString(), value.toString());
+    assertEquals(expected.toPb(), value.toPb());
+    assertEquals(expected.getSessionId(), value.getSessionId());
   }
 }

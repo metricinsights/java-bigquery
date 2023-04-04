@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2019 Google Inc.
+# Copyright 2019 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ fi
 pushd $(dirname "$0")/../../
 
 # install docuploader package
-python3 -m pip install gcp-docuploader
+python3 -m pip install --require-hashes -r .kokoro/requirements.txt
 
 # compile all packages
 mvn clean install -B -q -DskipTests=true

@@ -67,8 +67,10 @@ public class RoutineInfo implements Serializable {
   private final String language;
   private final List<RoutineArgument> argumentList;
   private final StandardSQLDataType returnType;
+  private final StandardSQLTableType returnTableType;
   private final List<String> importedLibrariesList;
   private final String body;
+  private final RemoteFunctionOptions remoteFunctionOptions;
 
   public abstract static class Builder {
 
@@ -113,6 +115,9 @@ public class RoutineInfo implements Serializable {
      */
     public abstract Builder setReturnType(StandardSQLDataType returnType);
 
+    /** Optional. Set only if Routine is a "TABLE_VALUED_FUNCTION". */
+    public abstract Builder setReturnTableType(StandardSQLTableType returnTableType);
+
     /**
      * Optional. If language = "JAVASCRIPT", this field stores the path of the imported JAVASCRIPT
      * libraries as a list of gs:// URLs.
@@ -144,6 +149,14 @@ public class RoutineInfo implements Serializable {
      */
     public abstract Builder setBody(String body);
 
+    /**
+     * Optional. Remote function specific options.
+     *
+     * @param remoteFunctionOptions
+     * @return
+     */
+    public abstract Builder setRemoteFunctionOptions(RemoteFunctionOptions remoteFunctionOptions);
+
     /** Creates a {@code RoutineInfo} object. */
     public abstract RoutineInfo build();
   }
@@ -159,8 +172,10 @@ public class RoutineInfo implements Serializable {
     private String language;
     private List<RoutineArgument> argumentList;
     private StandardSQLDataType returnType;
+    private StandardSQLTableType returnTableType;
     private List<String> importedLibrariesList;
     private String body;
+    private RemoteFunctionOptions remoteFunctionOptions;
 
     BuilderImpl() {}
 
@@ -175,8 +190,10 @@ public class RoutineInfo implements Serializable {
       this.language = routineInfo.language;
       this.argumentList = routineInfo.argumentList;
       this.returnType = routineInfo.returnType;
+      this.returnTableType = routineInfo.returnTableType;
       this.importedLibrariesList = routineInfo.importedLibrariesList;
       this.body = routineInfo.body;
+      this.remoteFunctionOptions = routineInfo.remoteFunctionOptions;
     }
 
     BuilderImpl(Routine routinePb) {
@@ -195,12 +212,19 @@ public class RoutineInfo implements Serializable {
       if (routinePb.getReturnType() != null) {
         this.returnType = StandardSQLDataType.fromPb(routinePb.getReturnType());
       }
+      if (routinePb.getReturnTableType() != null) {
+        this.returnTableType = StandardSQLTableType.fromPb(routinePb.getReturnTableType());
+      }
       if (routinePb.getImportedLibraries() == null) {
         this.importedLibrariesList = Collections.emptyList();
       } else {
         this.importedLibrariesList = routinePb.getImportedLibraries();
       }
       this.body = routinePb.getDefinitionBody();
+      if (routinePb.getRemoteFunctionOptions() != null) {
+        this.remoteFunctionOptions =
+            RemoteFunctionOptions.fromPb(routinePb.getRemoteFunctionOptions());
+      }
     }
 
     @Override
@@ -264,6 +288,12 @@ public class RoutineInfo implements Serializable {
     }
 
     @Override
+    public Builder setReturnTableType(StandardSQLTableType returnTableType) {
+      this.returnTableType = returnTableType;
+      return this;
+    }
+
+    @Override
     public Builder setImportedLibraries(List<String> importedLibrariesList) {
       this.importedLibrariesList = importedLibrariesList;
       return this;
@@ -272,6 +302,12 @@ public class RoutineInfo implements Serializable {
     @Override
     public Builder setBody(String body) {
       this.body = body;
+      return this;
+    }
+
+    @Override
+    public Builder setRemoteFunctionOptions(RemoteFunctionOptions remoteFunctionOptions) {
+      this.remoteFunctionOptions = remoteFunctionOptions;
       return this;
     }
 
@@ -292,8 +328,10 @@ public class RoutineInfo implements Serializable {
     this.language = builder.language;
     this.argumentList = builder.argumentList;
     this.returnType = builder.returnType;
+    this.returnTableType = builder.returnTableType;
     this.importedLibrariesList = builder.importedLibrariesList;
     this.body = builder.body;
+    this.remoteFunctionOptions = builder.remoteFunctionOptions;
   }
 
   /** Returns the RoutineId identified for the routine resource. * */
@@ -350,6 +388,11 @@ public class RoutineInfo implements Serializable {
     return returnType;
   }
 
+  /** If specified, returns the table type returned from the routine. */
+  public StandardSQLTableType getReturnTableType() {
+    return returnTableType;
+  }
+
   /**
    * Returns the list of imported libraries for the routine. Only relevant for routines implemented
    * using the JAVASCRIPT language.
@@ -362,6 +405,11 @@ public class RoutineInfo implements Serializable {
   public String getBody() {
     return body;
   }
+
+  /** Returns the Remote function specific options. */
+  public RemoteFunctionOptions getRemoteFunctionOptions() {
+    return remoteFunctionOptions;
+  };
 
   /** Returns a builder pre-populated using the current values of this routine. */
   public Builder toBuilder() {
@@ -381,8 +429,10 @@ public class RoutineInfo implements Serializable {
         .add("language", language)
         .add("arguments", argumentList)
         .add("returnType", returnType)
+        .add("returnTableType", returnTableType)
         .add("importedLibrariesList", importedLibrariesList)
         .add("body", body)
+        .add("remoteFunctionOptions", remoteFunctionOptions)
         .toString();
   }
 
@@ -399,8 +449,10 @@ public class RoutineInfo implements Serializable {
         language,
         argumentList,
         returnType,
+        returnTableType,
         importedLibrariesList,
-        body);
+        body,
+        remoteFunctionOptions);
   }
 
   @Override
@@ -447,6 +499,12 @@ public class RoutineInfo implements Serializable {
     }
     if (getReturnType() != null) {
       routinePb.setReturnType(getReturnType().toPb());
+    }
+    if (getReturnTableType() != null) {
+      routinePb.setReturnTableType(getReturnTableType().toPb());
+    }
+    if (getRemoteFunctionOptions() != null) {
+      routinePb.setRemoteFunctionOptions(getRemoteFunctionOptions().toPb());
     }
     return routinePb;
   }

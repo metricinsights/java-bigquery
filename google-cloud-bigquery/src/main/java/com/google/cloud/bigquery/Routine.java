@@ -112,6 +112,12 @@ public class Routine extends RoutineInfo {
     }
 
     @Override
+    public Builder setReturnTableType(StandardSQLTableType returnTableType) {
+      infoBuilder.setReturnTableType(returnTableType);
+      return this;
+    }
+
+    @Override
     public Builder setImportedLibraries(List<String> libraries) {
       infoBuilder.setImportedLibraries(libraries);
       return this;
@@ -120,6 +126,12 @@ public class Routine extends RoutineInfo {
     @Override
     public Builder setBody(String body) {
       infoBuilder.setBody(body);
+      return this;
+    }
+
+    @Override
+    public Builder setRemoteFunctionOptions(RemoteFunctionOptions remoteFunctionOptions) {
+      infoBuilder.setRemoteFunctionOptions(remoteFunctionOptions);
       return this;
     }
 

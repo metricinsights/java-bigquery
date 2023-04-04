@@ -23,8 +23,8 @@ cd ${scriptDir}/..
 # include common functions
 source ${scriptDir}/common.sh
 
-# Print out Java version
-java -version
+# Print out Maven & Java version
+mvn -version
 echo ${JOB_TYPE}
 
 # attempt to install 3 times with exponential backoff (starting with 10 seconds)
@@ -47,26 +47,55 @@ set +e
 
 case ${JOB_TYPE} in
 test)
-    mvn test -B -Dclirr.skip=true -Denforcer.skip=true
+    mvn test -B -ntp -Dclirr.skip=true -Denforcer.skip=true
     RETURN_CODE=$?
     ;;
 lint)
-    mvn com.coveo:fmt-maven-plugin:check
+    mvn com.coveo:fmt-maven-plugin:check -B -ntp
     RETURN_CODE=$?
     ;;
 javadoc)
-    mvn javadoc:javadoc javadoc:test-javadoc
+    mvn javadoc:javadoc javadoc:test-javadoc -B -ntp
     RETURN_CODE=$?
     ;;
 integration)
     mvn -B ${INTEGRATION_TEST_ARGS} \
       -ntp \
-      -Penable-integration-tests \
+      -Dtest=ITBigQueryTest,ITRemoteUDFTest \
       -DtrimStackTrace=false \
       -Dclirr.skip=true \
       -Denforcer.skip=true \
       -fae \
       verify
+    RETURN_CODE=$?
+    ;;
+nightly-it)
+    mvn -B ${INTEGRATION_TEST_ARGS} \
+          -ntp \
+          -Dtest=ITNightlyBigQueryTest,ITRemoteUDFTest \
+          -DtrimStackTrace=false \
+          -Dclirr.skip=true \
+          -Denforcer.skip=true \
+          -fae \
+          verify
+    RETURN_CODE=$?
+    ;;
+graalvm)
+    # Run Integration Tests with Native Image. Skip running nightly tests in presubmits.
+    mvn -B ${INTEGRATION_TEST_ARGS} -ntp -Dtest=ITBigQueryTest,ITRemoteUDFTest -Pnative -Penable-integration-tests test
+    RETURN_CODE=$?
+    ;;
+graalvm17)
+    # Run Integration Tests with Native Image. Skip running nightly tests in presubmits.
+    mvn -B ${INTEGRATION_TEST_ARGS} -ntp -Dtest=ITBigQueryTest,ITRemoteUDFTest -Pnative -Penable-integration-tests test
+    RETURN_CODE=$?
+    ;;
+nightly-graalvm)
+    mvn -B ${INTEGRATION_TEST_ARGS} -ntp -Dtest=ITNightlyBigQueryTest,ITRemoteUDFTest -Pnative -Penable-integration-tests test
+    RETURN_CODE=$?
+    ;;
+nightly-graalvm17)
+    mvn -B ${INTEGRATION_TEST_ARGS} -ntp -Dtest=ITNightlyBigQueryTest,ITRemoteUDFTest -Pnative -Penable-integration-tests test
     RETURN_CODE=$?
     ;;
 samples)
@@ -86,7 +115,6 @@ samples)
 
         pushd ${SAMPLES_DIR}
         mvn -B \
-          -Penable-samples \
           -ntp \
           -DtrimStackTrace=false \
           -Dclirr.skip=true \
@@ -100,7 +128,7 @@ samples)
     fi
     ;;
 clirr)
-    mvn -B -Denforcer.skip=true clirr:check
+    mvn -B -ntp -Denforcer.skip=true clirr:check
     RETURN_CODE=$?
     ;;
 *)
@@ -115,7 +143,7 @@ fi
 # fix output location of logs
 bash .kokoro/coerce_logs.sh
 
-if [[ "${ENABLE_BUILD_COP}" == "true" ]]
+if [[ "${ENABLE_FLAKYBOT}" == "true" ]]
 then
     chmod +x ${KOKORO_GFILE_DIR}/linux_amd64/flakybot
     ${KOKORO_GFILE_DIR}/linux_amd64/flakybot -repo=googleapis/java-bigquery
