@@ -122,6 +122,20 @@ public interface BigQuery extends Service<BigQueryOptions> {
   }
 
   /**
+   * Metadata of a BigQuery Table.
+   *
+   * @see <a href=
+   *     "https://cloud.google.com/bigquery/docs/reference/rest/v2/tables/get#tablemetadataview">Table
+   *     Resource</a>
+   */
+  enum TableMetadataView {
+    BASIC,
+    FULL,
+    STORAGE_STATS,
+    TABLE_METADATA_VIEW_UNSPECIFIED;
+  }
+
+  /**
    * Fields of a BigQuery Model resource.
    *
    * @see <a href= "https://cloud.google.com/bigquery/docs/reference/v2/models#resource">Model
@@ -421,6 +435,19 @@ public interface BigQuery extends Service<BigQueryOptions> {
     public static TableOption fields(TableField... fields) {
       return new TableOption(
           BigQueryRpc.Option.FIELDS, Helper.selector(TableField.REQUIRED_FIELDS, fields));
+    }
+
+    /**
+     * Returns an option to specify the schema of the table (only applicable for external tables)
+     * should be autodetected when updating the table from the underlying source.
+     */
+    public static TableOption autodetectSchema(boolean autodetect) {
+      return new TableOption(BigQueryRpc.Option.AUTODETECT_SCHEMA, autodetect);
+    }
+
+    /** Returns an option to specify the metadata of the table. */
+    public static TableOption tableMetadataView(TableMetadataView tableMetadataView) {
+      return new TableOption(BigQueryRpc.Option.TABLE_METADATA_VIEW, tableMetadataView);
     }
   }
 
@@ -905,7 +932,7 @@ public interface BigQuery extends Service<BigQueryOptions> {
    * {
    *   &#64;code
    *   // List datasets in the default project
-   *   Page<Dataset> datasets = bigquery.listDatasets(DatasetListOption.pageSize(100));
+   *   Page&lt;Dataset&gt; datasets = bigquery.listDatasets(DatasetListOption.pageSize(100));
    *   for (Dataset dataset : datasets.iterateAll()) {
    *     // do something with the dataset
    *   }
@@ -944,7 +971,7 @@ public interface BigQuery extends Service<BigQueryOptions> {
    *   &#64;code
    *   String projectId = "my_project_id";
    *   // List datasets in a specified project
-   *   Page<Dataset> datasets = bigquery.listDatasets(projectId, DatasetListOption.pageSize(100));
+   *   Page&lt;{@link Dataset}&gt; datasets = bigquery.listDatasets(projectId, DatasetListOption.pageSize(100));
    *   for (Dataset dataset : datasets.iterateAll()) {
    *     // do something with the dataset
    *   }
@@ -1070,11 +1097,9 @@ public interface BigQuery extends Service<BigQueryOptions> {
   /**
    * Deletes the requested routine.
    *
-   * <p>
-   * Example of deleting a routine.
+   * <p>Example of deleting a routine.
    *
-   * <pre>
-   * {@code
+   * <pre>{@code
    * String projectId = "my_project_id";
    * String datasetId = "my_dataset_id";
    * String routineId = "my_routine_id";
@@ -1085,11 +1110,9 @@ public interface BigQuery extends Service<BigQueryOptions> {
    * } else {
    *   // the routine was not found
    * }
-   * </pre>
+   * }</pre>
    *
-   * @return {@code true} if routine was deleted, {@code false} if it was not
-   * found
-   *
+   * @return {@code true} if routine was deleted, {@code false} if it was not found
    * @throws BigQueryException upon failure
    */
   boolean delete(RoutineId routineId);
@@ -1296,21 +1319,18 @@ public interface BigQuery extends Service<BigQueryOptions> {
   Page<Routine> listRoutines(DatasetId datasetId, RoutineListOption... options);
 
   /**
-   * Lists the tables in the dataset. This method returns partial information on
-   * each table: ({@link Table#getTableId()}, {@link Table#getFriendlyName()},
-   * {@link Table#getGeneratedId()} and type, which is part of
-   * {@link Table#getDefinition()}). To get complete information use either
-   * {@link #getTable(TableId, TableOption...)} or
-   * {@link #getTable(String, String, TableOption...)}.
+   * Lists the tables in the dataset. This method returns partial information on each table: ({@link
+   * Table#getTableId()}, {@link Table#getFriendlyName()}, {@link Table#getGeneratedId()} and type,
+   * which is part of {@link Table#getDefinition()}). To get complete information use either {@link
+   * #getTable(TableId, TableOption...)} or {@link #getTable(String, String, TableOption...)}.
    *
-   * <p>
-   * Example of listing the tables in a dataset, specifying the page size.
+   * <p>Example of listing the tables in a dataset, specifying the page size.
    *
    * <pre>
    * {
    *   &#64;code
    *   String datasetName = "my_dataset_name";
-   *   Page<Table> tables = bigquery.listTables(datasetName, TableListOption.pageSize(100));
+   *   Page&lt;Table&gt; tables = bigquery.listTables(datasetName, TableListOption.pageSize(100));
    *   for (Table table : tables.iterateAll()) {
    *     // do something with the table
    *   }
@@ -1322,15 +1342,12 @@ public interface BigQuery extends Service<BigQueryOptions> {
   Page<Table> listTables(String datasetId, TableListOption... options);
 
   /**
-   * Lists the tables in the dataset. This method returns partial information on
-   * each table: ({@link Table#getTableId()}, {@link Table#getFriendlyName()},
-   * {@link Table#getGeneratedId()} and type, which is part of
-   * {@link Table#getDefinition()}). To get complete information use either
-   * {@link #getTable(TableId, TableOption...)} or
-   * {@link #getTable(String, String, TableOption...)}.
+   * Lists the tables in the dataset. This method returns partial information on each table: ({@link
+   * Table#getTableId()}, {@link Table#getFriendlyName()}, {@link Table#getGeneratedId()} and type,
+   * which is part of {@link Table#getDefinition()}). To get complete information use either {@link
+   * #getTable(TableId, TableOption...)} or {@link #getTable(String, String, TableOption...)}.
    *
-   * <p>
-   * Example of listing the tables in a dataset.
+   * <p>Example of listing the tables in a dataset.
    *
    * <pre>
    * {
@@ -1338,7 +1355,7 @@ public interface BigQuery extends Service<BigQueryOptions> {
    *   String projectId = "my_project_id";
    *   String datasetName = "my_dataset_name";
    *   DatasetId datasetId = DatasetId.of(projectId, datasetName);
-   *   Page<Table> tables = bigquery.listTables(datasetId, TableListOption.pageSize(100));
+   *   Page&lt;Table&gt; tables = bigquery.listTables(datasetId, TableListOption.pageSize(100));
    *   for (Table table : tables.iterateAll()) {
    *     // do something with the table
    *   }
@@ -1373,12 +1390,12 @@ public interface BigQuery extends Service<BigQueryOptions> {
    *   String tableName = "my_table_name";
    *   TableId tableId = TableId.of(datasetName, tableName);
    *   // Values of the row to insert
-   *   Map<String, Object> rowContent = new HashMap<>();
+   *   Map&lt;String, Object&gt; rowContent = new HashMap&lt;&gt;();
    *   rowContent.put("booleanField", true);
    *   // Bytes are passed in base64
    *   rowContent.put("bytesField", "Cg0NDg0="); // 0xA, 0xD, 0xD, 0xE, 0xD in base64
    *   // Records are passed as a map
-   *   Map<String, Object> recordsContent = new HashMap<>();
+   *   Map&lt;String, Object&gt; recordsContent = new HashMap&lt;&gt;();
    *   recordsContent.put("stringField", "Hello, World!");
    *   rowContent.put("recordField", recordsContent);
    *   InsertAllResponse response = bigquery.insertAll(InsertAllRequest.newBuilder(tableId).addRow("rowId", rowContent)
@@ -1387,7 +1404,7 @@ public interface BigQuery extends Service<BigQueryOptions> {
    *       .build());
    *   if (response.hasErrors()) {
    *     // If any of the insertions failed, this lets you inspect the errors
-   *     for (Entry<Long, List<BigQueryError>> entry : response.getInsertErrors().entrySet()) {
+   *     for (Entry&lt;Long, List&lt;BigQueryError&gt;&gt; entry : response.getInsertErrors().entrySet()) {
    *       // inspect row error
    *     }
    *   }
@@ -1543,7 +1560,7 @@ public interface BigQuery extends Service<BigQueryOptions> {
    * <pre>
    * {
    *   &#64;code
-   *   Page<Job> jobs = bigquery.listJobs(JobListOption.pageSize(100));
+   *   Page&lt;Job&gt; jobs = bigquery.listJobs(JobListOption.pageSize(100));
    *   for (Job job : jobs.iterateAll()) {
    *     // do something with the job
    *   }
@@ -1639,6 +1656,16 @@ public interface BigQuery extends Service<BigQueryOptions> {
    *   }
    * }
    * </pre>
+   *
+   * This method supports query-related preview features via environmental variables (enabled by
+   * setting the {@code QUERY_PREVIEW_ENABLED} environment variable to "TRUE"). Specifically, this
+   * method supports:
+   *
+   * <ul>
+   *   <li><b>Stateless queries</b>: query execution without corresponding job metadata
+   * </ul>
+   *
+   * The behaviour of these preview features is controlled by the bigquery service as well
    *
    * @throws BigQueryException upon failure
    * @throws InterruptedException if the current thread gets interrupted while waiting for the query

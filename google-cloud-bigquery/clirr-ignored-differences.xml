@@ -3,6 +3,17 @@
 <differences>
   <!-- TODO: REMOVE AFTER RELEASE -->
   <difference>
+    <differenceType>3005</differenceType>
+    <className>com/google/cloud/bigquery/TableResult*</className>
+    <justification>TableResult is an internal API and it should be fine to update</justification>
+  </difference>
+  <difference>
+    <differenceType>7002</differenceType>
+    <className>com/google/cloud/bigquery/TableResult*</className>
+    <method>*TableResult(*)</method>
+    <justification>TableResult is an internal API and it should be fine to update</justification>
+  </difference>
+  <difference>
     <differenceType>7004</differenceType>
     <className>com/google/cloud/bigquery/spi/v2/BigQueryRpc</className>
     <method>com.google.api.services.bigquery.model.GetQueryResultsResponse getQueryResultsWithRowLimit(java.lang.String, java.lang.String, java.lang.String, java.lang.Integer)</method>
@@ -15,6 +26,19 @@
     <justification>getQueryResultsWithRowLimit is just used by ConnectionImpl at the moment so it should be fine to update the signature instead of writing an overloaded method</justification>
   </difference>
   <difference>
+    <differenceType>7004</differenceType>
+    <className>com/google/cloud/bigquery/TableResult*</className>
+    <method>*TableResult(*)</method>
+    <justification>It should be fine to update TableResult constructors since it is used to return results to the user and users should not directly construct TableResult objects</justification>
+  </difference>
+  <difference>
+    <differenceType>7005</differenceType>
+    <className>com/google/cloud/bigquery/TableResult*</className>
+    <method>*TableResult(*)</method>
+    <to>*TableResult(*)</to>
+    <justification>It should be fine to update TableResult constructors since it is used to return results to the user and users should not directly construct TableResult objects</justification>
+  </difference>
+  <difference>
     <differenceType>7013</differenceType>
     <className>com/google/cloud/bigquery/ExternalTableDefinition*</className>
     <method>*ReferenceFileSchemaUri(*)</method>
@@ -22,7 +46,27 @@
   <difference>
     <differenceType>7013</differenceType>
     <className>com/google/cloud/bigquery/RoutineInfo*</className>
+    <method>*DataGovernanceType(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/RoutineInfo*</className>
     <method>*RemoteFunctionOptions(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/TableInfo*</className>
+    <method>*ResourceTags(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/TableResult*</className>
+    <method>*getPageNoSchema(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/TableResult*</className>
+    <method>*toBuilder(*)</method>
   </difference>
   <difference>
     <differenceType>7012</differenceType>
@@ -44,10 +88,83 @@
     <className>com/google/cloud/bigquery/TableInfo*</className>
     <method>*DefaultCollation(*)</method>
   </difference>
-
   <difference>
     <differenceType>7013</differenceType>
     <className>com/google/cloud/bigquery/TableInfo*</className>
     <method>*CloneDefinition(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*TableConstraints(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumActiveLogicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumActivePhysicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumLongTermLogicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumLongTermPhysicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumTimeTravelPhysicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumTotalLogicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*NumTotalPhysicalBytes(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/TableInfo*</className>
+    <method>*TableConstraints(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/IndexUnusedReason*</className>
+    <method>*BaseTableId(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7002</differenceType>
+    <className>com/google/cloud/bigquery/IndexUnusedReason*</className>
+    <method>*BaseTable(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/DatasetInfo*</className>
+    <method>*setExternalDatasetReference(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/DatasetInfo*</className>
+    <method>*setStorageBillingModel(*)</method>
+  </difference>
+  <difference>
+    <differenceType>7013</differenceType>
+    <className>com/google/cloud/bigquery/StandardTableDefinition*</className>
+    <method>*BigLakeConfiguration(*)</method>
+  </difference>
+  <difference>
+    <differenceType>8001</differenceType>
+    <className>com/google/cloud/bigquery/EmptyTableResult*</className>
   </difference>
   </differences>

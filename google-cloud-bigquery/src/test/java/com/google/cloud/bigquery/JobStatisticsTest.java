@@ -85,11 +85,15 @@ public class JobStatisticsTest {
   private static final Long SLOTMS = 12545L;
   private static final String TRANSACTION_ID = UUID.randomUUID().toString().substring(0, 8);
   private static final String SESSION_ID = UUID.randomUUID().toString().substring(0, 8);
+  private static final Long COPIED_ROW = 1L;
+  private static final Long COPIED_LOGICAL_BYTES = 2L;
   private static final CopyStatistics COPY_STATISTICS =
       CopyStatistics.newBuilder()
           .setCreationTimestamp(CREATION_TIME)
           .setEndTime(END_TIME)
           .setStartTime(START_TIME)
+          .setCopiedRows(COPIED_ROW)
+          .setCopiedLogicalBytes(COPIED_LOGICAL_BYTES)
           .build();
   private static final ExtractStatistics EXTRACT_STATISTICS =
       ExtractStatistics.newBuilder()
@@ -97,6 +101,7 @@ public class JobStatisticsTest {
           .setEndTime(END_TIME)
           .setStartTime(START_TIME)
           .setDestinationUriFileCounts(FILE_COUNT)
+          .setInputBytes(INPUT_BYTES)
           .build();
   private static final LoadStatistics LOAD_STATISTICS =
       LoadStatistics.newBuilder()
@@ -159,6 +164,17 @@ public class JobStatisticsTest {
       ImmutableList.of(TIMELINE_SAMPLE1, TIMELINE_SAMPLE2);
   private static final List<QueryStage> QUERY_PLAN = ImmutableList.of(QUERY_STAGE);
   private static final Schema SCHEMA = Schema.of(Field.of("column", LegacySQLTypeName.DATETIME));
+  private static final String UNUSED_INDEX_USAGE_MODE = "UNUSED";
+  private static final SearchStats SEARCH_STATS =
+      SearchStats.newBuilder().setIndexUsageMode(UNUSED_INDEX_USAGE_MODE).build();
+
+  private static final MetadataCacheStats METADATA_CACHE_STATS =
+      MetadataCacheStats.newBuilder()
+          .setTableMetadataCacheUsage(
+              ImmutableList.of(
+                  TableMetadataCacheUsage.newBuilder().setExplanation("test explanation").build()))
+          .build();
+
   private static final QueryStatistics QUERY_STATISTICS =
       QueryStatistics.newBuilder()
           .setCreationTimestamp(CREATION_TIME)
@@ -182,6 +198,8 @@ public class JobStatisticsTest {
           .setQueryPlan(QUERY_PLAN)
           .setTimeline(TIMELINE)
           .setSchema(SCHEMA)
+          .setSearchStats(SEARCH_STATS)
+          .setMetadataCacheStats(METADATA_CACHE_STATS)
           .build();
   private static final QueryStatistics QUERY_STATISTICS_INCOMPLETE =
       QueryStatistics.newBuilder()
@@ -190,6 +208,8 @@ public class JobStatisticsTest {
           .setStartTime(START_TIME)
           .setBillingTier(BILLING_TIER)
           .setCacheHit(CACHE_HIT)
+          .setSearchStats(SEARCH_STATS)
+          .setMetadataCacheStats(METADATA_CACHE_STATS)
           .build();
   private static final ScriptStackFrame STATEMENT_STACK_FRAME =
       ScriptStackFrame.newBuilder()
@@ -244,6 +264,13 @@ public class JobStatisticsTest {
     assertEquals(START_TIME, EXTRACT_STATISTICS.getStartTime());
     assertEquals(END_TIME, EXTRACT_STATISTICS.getEndTime());
     assertEquals(FILE_COUNT, EXTRACT_STATISTICS.getDestinationUriFileCounts());
+    assertEquals(INPUT_BYTES, EXTRACT_STATISTICS.getInputBytes());
+
+    assertEquals(CREATION_TIME, COPY_STATISTICS.getCreationTime());
+    assertEquals(START_TIME, COPY_STATISTICS.getStartTime());
+    assertEquals(END_TIME, COPY_STATISTICS.getEndTime());
+    assertEquals(COPIED_LOGICAL_BYTES, COPY_STATISTICS.getCopiedLogicalBytes());
+    assertEquals(COPIED_ROW, COPY_STATISTICS.getCopiedRows());
 
     assertEquals(CREATION_TIME, LOAD_STATISTICS.getCreationTime());
     assertEquals(START_TIME, LOAD_STATISTICS.getStartTime());
@@ -317,6 +344,7 @@ public class JobStatisticsTest {
   public void testToPbAndFromPb() {
     compareExtractStatistics(
         EXTRACT_STATISTICS, ExtractStatistics.fromPb(EXTRACT_STATISTICS.toPb()));
+    compareCopyStatistics(COPY_STATISTICS, CopyStatistics.fromPb(COPY_STATISTICS.toPb()));
     compareLoadStatistics(LOAD_STATISTICS, LoadStatistics.fromPb(LOAD_STATISTICS.toPb()));
     compareQueryStatistics(QUERY_STATISTICS, QueryStatistics.fromPb(QUERY_STATISTICS.toPb()));
     compareStatistics(COPY_STATISTICS, CopyStatistics.fromPb(COPY_STATISTICS.toPb()));
@@ -380,6 +408,14 @@ public class JobStatisticsTest {
     assertEquals(expected, value);
     compareStatistics(expected, value);
     assertEquals(expected.getDestinationUriFileCounts(), value.getDestinationUriFileCounts());
+    assertEquals(expected.getInputBytes(), value.getInputBytes());
+  }
+
+  private void compareCopyStatistics(CopyStatistics expected, CopyStatistics value) {
+    assertEquals(expected, value);
+    compareStatistics(expected, value);
+    assertEquals(expected.getCopiedLogicalBytes(), value.getCopiedLogicalBytes());
+    assertEquals(expected.getCopiedRows(), value.getCopiedRows());
   }
 
   private void compareLoadStatistics(LoadStatistics expected, LoadStatistics value) {
@@ -407,6 +443,9 @@ public class JobStatisticsTest {
     assertEquals(expected.getQueryPlan(), value.getQueryPlan());
     assertEquals(expected.getReferencedTables(), value.getReferencedTables());
     assertEquals(expected.getSchema(), value.getSchema());
+    assertEquals(
+        expected.getSearchStats().getIndexUsageMode(), value.getSearchStats().getIndexUsageMode());
+    assertEquals(expected.getMetadataCacheStats(), value.getMetadataCacheStats());
     assertEquals(expected.getStatementType(), value.getStatementType());
     assertEquals(expected.getTimeline(), value.getTimeline());
   }
