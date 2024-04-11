@@ -55,6 +55,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -173,7 +174,9 @@ class ConnectionImpl implements Connection {
     List<QueryParameter> queryParametersPb =
         dryRunJob.getStatistics().getQuery().getUndeclaredQueryParameters();
     List<Parameter> queryParameters =
-        Lists.transform(queryParametersPb, QUERY_PARAMETER_FROM_PB_FUNCTION);
+        queryParametersPb == null
+            ? Collections.emptyList()
+            : Lists.transform(queryParametersPb, QUERY_PARAMETER_FROM_PB_FUNCTION);
     QueryStatistics queryStatistics = JobStatistics.fromPb(dryRunJob);
     SessionInfo sessionInfo =
         queryStatistics.getSessionInfo() == null ? null : queryStatistics.getSessionInfo();
@@ -1203,22 +1206,18 @@ class ConnectionImpl implements Connection {
 
   @VisibleForTesting
   boolean useReadAPI(Long totalRows, Long pageRows, Schema schema, Boolean hasQueryParameters) {
-    if ((totalRows == null || pageRows == null)
-        && Boolean.TRUE.equals(
-            connectionSettings
-                .getUseReadAPI())) { // totalRows and pageRows are returned null when the job is not
-      // complete
-      return true;
-    }
-
     // Read API does not yet support Interval Type or QueryParameters
     if (containsIntervalType(schema) || hasQueryParameters) {
       logger.log(Level.INFO, "\n Schema has IntervalType, or QueryParameters. Disabling ReadAPI");
       return false;
     }
 
-    long resultRatio = totalRows / pageRows;
+    if (totalRows == null || pageRows == null) {
+      return connectionSettings.getUseReadAPI();
+    }
+
     if (Boolean.TRUE.equals(connectionSettings.getUseReadAPI())) {
+      long resultRatio = totalRows / pageRows;
       return resultRatio >= connectionSettings.getTotalToPageRowCountRatio()
           && totalRows > connectionSettings.getMinResultSize();
     } else {

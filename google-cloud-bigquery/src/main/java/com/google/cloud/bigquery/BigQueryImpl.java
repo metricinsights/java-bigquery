@@ -41,6 +41,7 @@ import com.google.cloud.RetryHelper;
 import com.google.cloud.RetryHelper.RetryHelperException;
 import com.google.cloud.Tuple;
 import com.google.cloud.bigquery.InsertAllRequest.RowToInsert;
+import com.google.cloud.bigquery.QueryJobConfiguration.JobCreationMode;
 import com.google.cloud.bigquery.spi.v2.BigQueryRpc;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -55,7 +56,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.NonNull;
+import org.threeten.bp.Instant;
+import org.threeten.bp.temporal.ChronoUnit;
 
 final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuery {
 
@@ -431,7 +436,7 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
                   }
                 },
                 getOptions().getRetrySettings(),
-                EXCEPTION_HANDLER,
+                BigQueryBaseService.BIGQUERY_EXCEPTION_HANDLER,
                 getOptions().getClock(),
                 DEFAULT_RETRY_CONFIG));
       } catch (BigQueryRetryHelper.BigQueryRetryHelperException e) {
@@ -442,15 +447,38 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
     }
 
     if (!idRandom) {
+      if (createException instanceof BigQueryException && createException.getCause() != null) {
+
+        /*GoogleJsonResponseException createExceptionCause =
+        (GoogleJsonResponseException) createException.getCause();*/
+
+        Pattern pattern = Pattern.compile(".*Already.*Exists:.*Job.*", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = pattern.matcher(createException.getCause().getMessage());
+
+        if (matcher.find()) {
+          // If the Job ALREADY EXISTS, retrieve it.
+          Job job = this.getJob(jobInfo.getJobId(), JobOption.fields(JobField.STATISTICS));
+
+          long jobCreationTime = job.getStatistics().getCreationTime();
+          long jobMinStaleTime = System.currentTimeMillis();
+          long jobMaxStaleTime =
+              Instant.ofEpochMilli(jobMinStaleTime).minus(1, ChronoUnit.DAYS).toEpochMilli();
+
+          // Only return the job if it has been created in the past 24 hours.
+          // This is assuming any job older than 24 hours is a valid duplicate JobID
+          // and not a false positive like b/290419183
+          if (jobCreationTime >= jobMaxStaleTime && jobCreationTime <= jobMinStaleTime) {
+            return job;
+          }
+        }
+      }
       throw createException;
     }
 
     // If create RPC fails, it's still possible that the job has been successfully
-    // created,
-    // and get might work.
+    // created, and get might work.
     // We can only do this if we randomly generated the ID. Otherwise we might
-    // mistakenly
-    // fetch a job created by someone else.
+    // mistakenly fetch a job created by someone else.
     Job job;
     try {
       job = getJob(finalJobId[0]);
@@ -1187,7 +1215,11 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
   public TableResult listTableData(TableId tableId, Schema schema, TableDataListOption... options) {
     Tuple<? extends Page<FieldValueList>, Long> data =
         listTableData(tableId, schema, getOptions(), optionMap(options));
-    return new TableResult(schema, data.y(), data.x());
+    return TableResult.newBuilder()
+        .setSchema(schema)
+        .setTotalRows(data.y())
+        .setPageNoSchema(data.x())
+        .build();
   }
 
   private static Tuple<? extends Page<FieldValueList>, Long> listTableData(
@@ -1356,12 +1388,23 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
       throws InterruptedException, JobException {
     Job.checkNotDryRun(configuration, "query");
 
+    if (getOptions().isQueryPreviewEnabled()) {
+      configuration =
+          configuration
+              .toBuilder()
+              .setJobCreationMode(JobCreationMode.JOB_CREATION_OPTIONAL)
+              .build();
+    }
+
     // If all parameters passed in configuration are supported by the query() method on the backend,
     // put on fast path
     QueryRequestInfo requestInfo = new QueryRequestInfo(configuration);
     if (requestInfo.isFastQuerySupported(null)) {
       String projectId = getOptions().getProjectId();
       QueryRequest content = requestInfo.toPb();
+      if (getOptions().getLocation() != null) {
+        content.setLocation(getOptions().getLocation());
+      }
       return queryRpc(projectId, content, options);
     }
     // Otherwise, fall back to the existing create query job logic
@@ -1393,7 +1436,7 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
       List<BigQueryError> bigQueryErrors =
           Lists.transform(results.getErrors(), BigQueryError.FROM_PB_FUNCTION);
       // Throwing BigQueryException since there may be no JobId and we want to stay consistent
-      // with the case where there there is a HTTP error
+      // with the case where there is an HTTP error
       throw new BigQueryException(bigQueryErrors);
     }
 
@@ -1420,30 +1463,40 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
     if (results.getPageToken() != null) {
       JobId jobId = JobId.fromPb(results.getJobReference());
       String cursor = results.getPageToken();
-      return new TableResult(
-          schema,
-          numRows,
-          new PageImpl<>(
-              // fetch next pages of results
-              new QueryPageFetcher(jobId, schema, getOptions(), cursor, optionMap(options)),
-              cursor,
-              // cache first page of result
-              transformTableData(results.getRows(), schema)));
+      return TableResult.newBuilder()
+          .setSchema(schema)
+          .setTotalRows(numRows)
+          .setPageNoSchema(
+              new PageImpl<>(
+                  // fetch next pages of results
+                  new QueryPageFetcher(jobId, schema, getOptions(), cursor, optionMap(options)),
+                  cursor,
+                  transformTableData(results.getRows(), schema)))
+          .setJobId(jobId)
+          .setQueryId(results.getQueryId())
+          .build();
     }
     // only 1 page of result
-    return new TableResult(
-        schema,
-        numRows,
-        new PageImpl<>(
-            new TableDataPageFetcher(null, schema, getOptions(), null, optionMap(options)),
-            null,
-            transformTableData(results.getRows(), schema)));
+    return TableResult.newBuilder()
+        .setSchema(schema)
+        .setTotalRows(numRows)
+        .setPageNoSchema(
+            new PageImpl<>(
+                new TableDataPageFetcher(null, schema, getOptions(), null, optionMap(options)),
+                null,
+                transformTableData(results.getRows(), schema)))
+        // Return the JobID of the successful job
+        .setJobId(
+            results.getJobReference() != null ? JobId.fromPb(results.getJobReference()) : null)
+        .setQueryId(results.getQueryId())
+        .build();
   }
 
   @Override
   public TableResult query(QueryJobConfiguration configuration, JobId jobId, JobOption... options)
       throws InterruptedException, JobException {
     Job.checkNotDryRun(configuration, "query");
+
     // If all parameters passed in configuration are supported by the query() method on the backend,
     // put on fast path
     QueryRequestInfo requestInfo = new QueryRequestInfo(configuration);
@@ -1455,12 +1508,14 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
       String projectId =
           jobId.getProject() != null ? jobId.getProject() : getOptions().getProjectId();
       QueryRequest content = requestInfo.toPb();
-      // Be careful when setting the location in JobId, if a location is specified in the JobId,
-      // the job created by the query method will be in that location, even if the table to be
+      // Be careful when setting the location, if a location is specified in the BigQueryOption or
+      // JobId the job created by the query method will be in that location, even if the table to be
       // queried is in a different location. This may cause the query to fail with
       // "BigQueryException: Not found"
       if (jobId.getLocation() != null) {
         content.setLocation(jobId.getLocation());
+      } else if (getOptions().getLocation() != null) {
+        content.setLocation(getOptions().getLocation());
       }
 
       return queryRpc(projectId, content, options);
