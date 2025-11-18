@@ -704,7 +704,7 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
           final Map<BigQueryRpc.Option, ?> optionsMap) {
     try {
       Tuple<String, Iterable<com.google.api.services.bigquery.model.ProjectList.Projects>> result =
-              runWithRetries(
+              BigQueryRetryHelper.runWithRetries(
                       new Callable<
                               Tuple<String, Iterable<com.google.api.services.bigquery.model.ProjectList.Projects>>>() {
                         @Override
@@ -728,7 +728,7 @@ final class BigQueryImpl extends BaseService<BigQueryOptions> implements BigQuer
                           return new Project(projects.getId(), projects.getFriendlyName());
                         }
                       }));
-    } catch (RetryHelper.RetryHelperException e) {
+    } catch (BigQueryRetryHelperException e) {
       throw BigQueryException.translateAndThrow(e);
     }
   }
