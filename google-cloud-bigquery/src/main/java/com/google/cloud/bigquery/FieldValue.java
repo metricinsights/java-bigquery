@@ -26,6 +26,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.io.BaseEncoding;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
@@ -46,10 +47,11 @@ import org.threeten.extra.PeriodDuration;
 public class FieldValue implements Serializable {
 
   private static final int MICROSECONDS = 1000000;
-  private static final long serialVersionUID = 469098630191710061L;
+  private static final long serialVersionUID = 469098630191710062L;
 
   private final Attribute attribute;
   private final Object value;
+  private final Boolean useInt64Timestamps;
 
   /** The field value's attribute, giving information on the field's content type. */
   public enum Attribute {
@@ -67,12 +69,20 @@ public class FieldValue implements Serializable {
     REPEATED,
 
     /** A {@code FieldValue} for a field of type {@link LegacySQLTypeName#RECORD}. */
-    RECORD
+    RECORD,
+
+    /** A {@code FieldValue} for a field of type {@link LegacySQLTypeName#RANGE}. */
+    RANGE
   }
 
   private FieldValue(Attribute attribute, Object value) {
+    this(attribute, value, false);
+  }
+
+  private FieldValue(Attribute attribute, Object value, Boolean useInt64Timestamps) {
     this.attribute = checkNotNull(attribute);
     this.value = value;
+    this.useInt64Timestamps = useInt64Timestamps;
   }
 
   /**
@@ -104,6 +114,10 @@ public class FieldValue implements Serializable {
     return value;
   }
 
+  public Boolean getUseInt64Timestamps() {
+    return useInt64Timestamps;
+  }
+
   /**
    * Returns this field's value as a {@link String}. This method should only be used if the
    * corresponding field has primitive type ({@link LegacySQLTypeName#BYTES}, {@link
@@ -118,6 +132,20 @@ public class FieldValue implements Serializable {
   public String getStringValue() {
     checkNotNull(value);
     return (String) value;
+  }
+
+  /**
+   * Returns this field's value as a {@link String}, or defaultValue if {@link #isNull()} returns
+   * {@code true}. See {@link #getStringValue()} for more details.
+   *
+   * @throws ClassCastException if the field is not a primitive type
+   */
+  @SuppressWarnings("unchecked")
+  public String getStringValueOrDefault(String defaultValue) {
+    if (isNull()) {
+      return defaultValue;
+    }
+    return getStringValue();
   }
 
   /**
@@ -190,6 +218,9 @@ public class FieldValue implements Serializable {
    */
   @SuppressWarnings("unchecked")
   public long getTimestampValue() {
+    if (useInt64Timestamps) {
+      return new BigInteger(getStringValue()).longValue();
+    }
     // timestamps are encoded in the format 1408452095.22 where the integer part is seconds since
     // epoch (e.g. 1408452095.22 == 2014-08-19 07:41:35.220 -05:00)
     BigDecimal secondsWithMicro = new BigDecimal(getStringValue());
@@ -227,6 +258,23 @@ public class FieldValue implements Serializable {
   @SuppressWarnings("unchecked")
   public BigDecimal getNumericValue() {
     return new BigDecimal(getStringValue());
+  }
+
+  /**
+   * Returns this field's value as a {@link Range}. This method should only be used * if the
+   * corresponding field has {@link LegacySQLTypeName#RANGE} type.
+   *
+   * @throws ClassCastException if the field is not a primitive type
+   * @throws IllegalArgumentException if the field's value could not be converted to {@link Range}
+   * @throws NullPointerException if {@link #isNull()} returns {@code true}
+   */
+  @SuppressWarnings("unchecked")
+  public Range getRangeValue() {
+    if (attribute == Attribute.RANGE) {
+      return (Range) value;
+    }
+    // Provide best effort to convert value to Range object.
+    return Range.of(getStringValue());
   }
 
   /**
@@ -283,12 +331,13 @@ public class FieldValue implements Serializable {
     return MoreObjects.toStringHelper(this)
         .add("attribute", attribute)
         .add("value", value)
+        .add("useInt64Timestamps", useInt64Timestamps)
         .toString();
   }
 
   @Override
   public final int hashCode() {
-    return Objects.hash(attribute, value);
+    return Objects.hash(attribute, value, useInt64Timestamps);
   }
 
   @Override
@@ -300,7 +349,9 @@ public class FieldValue implements Serializable {
       return false;
     }
     FieldValue other = (FieldValue) obj;
-    return attribute == other.attribute && Objects.equals(value, other.value);
+    return attribute == other.attribute
+        && Objects.equals(value, other.value)
+        && Objects.equals(useInt64Timestamps, other.useInt64Timestamps);
   }
 
   /**
@@ -319,23 +370,38 @@ public class FieldValue implements Serializable {
    */
   @BetaApi
   public static FieldValue of(Attribute attribute, Object value) {
-    return new FieldValue(attribute, value);
+    return of(attribute, value, false);
+  }
+
+  @BetaApi
+  public static FieldValue of(Attribute attribute, Object value, Boolean useInt64Timestamps) {
+    return new FieldValue(attribute, value, useInt64Timestamps);
   }
 
   static FieldValue fromPb(Object cellPb) {
-    return fromPb(cellPb, null);
+    return fromPb(cellPb, null, false);
   }
 
   @SuppressWarnings("unchecked")
-  static FieldValue fromPb(Object cellPb, Field recordSchema) {
+  static FieldValue fromPb(Object cellPb, Field recordSchema, Boolean useInt64Timestamps) {
     if (Data.isNull(cellPb)) {
-      return FieldValue.of(Attribute.PRIMITIVE, null);
+      return FieldValue.of(Attribute.PRIMITIVE, null, useInt64Timestamps);
     }
     if (cellPb instanceof String) {
-      return FieldValue.of(Attribute.PRIMITIVE, cellPb);
+      if ((recordSchema != null)
+          && (recordSchema.getType() == LegacySQLTypeName.RANGE)
+          && (recordSchema.getRangeElementType() != null)) {
+        return FieldValue.of(
+            Attribute.RANGE,
+            Range.of((String) cellPb, recordSchema.getRangeElementType()),
+            useInt64Timestamps);
+      }
+      return FieldValue.of(Attribute.PRIMITIVE, cellPb, useInt64Timestamps);
     }
     if (cellPb instanceof List) {
-      return FieldValue.of(Attribute.REPEATED, FieldValueList.fromPb((List<Object>) cellPb, null));
+      return FieldValue.of(
+          Attribute.REPEATED,
+          FieldValueList.fromPb((List<Object>) cellPb, null, useInt64Timestamps));
     }
     if (cellPb instanceof Map) {
       Map<String, Object> cellMapPb = (Map<String, Object>) cellPb;
@@ -343,12 +409,13 @@ public class FieldValue implements Serializable {
         FieldList subFieldsSchema = recordSchema != null ? recordSchema.getSubFields() : null;
         return FieldValue.of(
             Attribute.RECORD,
-            FieldValueList.fromPb((List<Object>) cellMapPb.get("f"), subFieldsSchema));
+            FieldValueList.fromPb(
+                (List<Object>) cellMapPb.get("f"), subFieldsSchema, useInt64Timestamps));
       }
       // This should never be the case when we are processing a first level table field (i.e. a
       // row's field, not a record sub-field)
       if (cellMapPb.containsKey("v")) {
-        return FieldValue.fromPb(cellMapPb.get("v"), recordSchema);
+        return FieldValue.fromPb(cellMapPb.get("v"), recordSchema, useInt64Timestamps);
       }
     }
     throw new IllegalArgumentException("Unexpected table cell format");

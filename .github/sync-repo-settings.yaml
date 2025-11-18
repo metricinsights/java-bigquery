@@ -15,8 +15,8 @@ branchProtectionRules:
       - units (11)
       - 'Kokoro - Test: Integration'
       - cla/google
-      - OwlBot Post Processor
       - javadoc
+      - unmanaged_dependency_check
   - pattern: 1.127.12-sp
     isAdminEnforced: true
     requiredApprovingReviewCount: 1
@@ -61,7 +61,6 @@ branchProtectionRules:
       - units (11)
       - 'Kokoro - Test: Integration'
       - cla/google
-      - OwlBot Post Processor
   - pattern: 2.10.x
     isAdminEnforced: true
     requiredApprovingReviewCount: 1
@@ -76,7 +75,6 @@ branchProtectionRules:
       - units (11)
       - 'Kokoro - Test: Integration'
       - cla/google
-      - OwlBot Post Processor
   - pattern: 2.19.x
     isAdminEnforced: true
     requiredApprovingReviewCount: 1
@@ -91,7 +89,6 @@ branchProtectionRules:
       - units (11)
       - 'Kokoro - Test: Integration'
       - cla/google
-      - OwlBot Post Processor
   - pattern: 2.35.x
     isAdminEnforced: true
     requiredApprovingReviewCount: 1
@@ -105,8 +102,66 @@ branchProtectionRules:
       - units (11)
       - 'Kokoro - Test: Integration'
       - cla/google
-      - OwlBot Post Processor
       - javadoc
+  - pattern: 2.40.x
+    isAdminEnforced: true
+    requiredApprovingReviewCount: 1
+    requiresCodeOwnerReviews: true
+    requiresStrictStatusChecks: false
+    requiredStatusCheckContexts:
+      - dependencies (17)
+      - lint
+      - clirr
+      - units (8)
+      - units (11)
+      - 'Kokoro - Test: Integration'
+      - cla/google
+      - javadoc
+  - pattern: 2.48.x
+    isAdminEnforced: true
+    requiredApprovingReviewCount: 1
+    requiresCodeOwnerReviews: true
+    requiresStrictStatusChecks: false
+    requiredStatusCheckContexts:
+      - dependencies (17)
+      - lint
+      - clirr
+      - units (8)
+      - units (11)
+      - 'Kokoro - Test: Integration'
+      - cla/google
+      - javadoc
+      - unmanaged_dependency_check
+  - pattern: 2.52.x
+    isAdminEnforced: true
+    requiredApprovingReviewCount: 1
+    requiresCodeOwnerReviews: true
+    requiresStrictStatusChecks: false
+    requiredStatusCheckContexts:
+      - dependencies (17)
+      - lint
+      - clirr
+      - units (8)
+      - units (11)
+      - 'Kokoro - Test: Integration'
+      - cla/google
+      - javadoc
+      - unmanaged_dependency_check
+  - pattern: 2.51.x
+    isAdminEnforced: true
+    requiredApprovingReviewCount: 1
+    requiresCodeOwnerReviews: true
+    requiresStrictStatusChecks: false
+    requiredStatusCheckContexts:
+      - dependencies (17)
+      - lint
+      - clirr
+      - units (8)
+      - units (11)
+      - 'Kokoro - Test: Integration'
+      - cla/google
+      - javadoc
+      - unmanaged_dependency_check
 permissionRules:
   - team: api-bigquery
     permission: admin

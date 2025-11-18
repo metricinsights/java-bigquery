@@ -16,12 +16,14 @@
 
 package com.google.cloud.bigquery;
 
-import static org.threeten.bp.temporal.ChronoField.HOUR_OF_DAY;
-import static org.threeten.bp.temporal.ChronoField.MINUTE_OF_HOUR;
-import static org.threeten.bp.temporal.ChronoField.NANO_OF_SECOND;
-import static org.threeten.bp.temporal.ChronoField.SECOND_OF_MINUTE;
+import static java.time.temporal.ChronoField.HOUR_OF_DAY;
+import static java.time.temporal.ChronoField.MINUTE_OF_HOUR;
+import static java.time.temporal.ChronoField.NANO_OF_SECOND;
+import static java.time.temporal.ChronoField.SECOND_OF_MINUTE;
 
+import com.google.api.core.ObsoleteApi;
 import com.google.api.services.bigquery.model.QueryParameterType;
+import com.google.api.services.bigquery.model.RangeValue;
 import com.google.auto.value.AutoValue;
 import com.google.cloud.Timestamp;
 import com.google.common.base.Function;
@@ -32,17 +34,17 @@ import com.google.common.io.BaseEncoding;
 import com.google.gson.JsonObject;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
-import org.threeten.bp.Instant;
-import org.threeten.bp.ZoneOffset;
-import org.threeten.bp.format.DateTimeFormatter;
-import org.threeten.bp.format.DateTimeFormatterBuilder;
-import org.threeten.bp.format.DateTimeParseException;
 import org.threeten.extra.PeriodDuration;
 
 /**
@@ -141,6 +143,13 @@ public abstract class QueryParameterValue implements Serializable {
 
     abstract Builder setStructValuesInner(Map<String, QueryParameterValue> structValues);
 
+    /** Sets range values. The type must set to RANGE. */
+    public Builder setRangeValues(Range range) {
+      return setRangeValuesInner(range);
+    }
+
+    abstract Builder setRangeValuesInner(Range range);
+
     /** Sets the parameter data type. */
     public abstract Builder setType(StandardSQLTypeName type);
 
@@ -183,6 +192,15 @@ public abstract class QueryParameterValue implements Serializable {
 
   @Nullable
   abstract Map<String, QueryParameterValue> getStructValuesInner();
+
+  /** Returns the struct values of this parameter. The returned map, if not null, is immutable. */
+  @Nullable
+  public Range getRangeValues() {
+    return getRangeValuesInner();
+  }
+
+  @Nullable
+  abstract Range getRangeValuesInner();
 
   /** Returns the data type of this parameter. */
   public abstract StandardSQLTypeName getType();
@@ -282,7 +300,12 @@ public abstract class QueryParameterValue implements Serializable {
     return of(value, StandardSQLTypeName.BYTES);
   }
 
-  /** Creates a {@code QueryParameterValue} object with a type of TIMESTAMP. */
+  /**
+   * Creates a {@code QueryParameterValue} object with a type of TIMESTAMP.
+   *
+   * @param value Microseconds since epoch, e.g. 1733945416000000 corresponds to 2024-12-11
+   *     19:30:16.929Z
+   */
   public static QueryParameterValue timestamp(Long value) {
     return of(value, StandardSQLTypeName.TIMESTAMP);
   }
@@ -328,9 +351,21 @@ public abstract class QueryParameterValue implements Serializable {
     return of(value, StandardSQLTypeName.INTERVAL);
   }
 
-  /** Creates a {@code QueryParameterValue} object with a type of INTERVAL. */
+  /**
+   * Creates a {@code QueryParameterValue} object with a type of INTERVAL. This method is obsolete.
+   * Use {@link #interval(String)} instead.
+   */
+  @ObsoleteApi("Use interval(String) instead")
   public static QueryParameterValue interval(PeriodDuration value) {
     return of(value, StandardSQLTypeName.INTERVAL);
+  }
+
+  /** Creates a {@code QueryParameterValue} object with a type of RANGE. */
+  public static QueryParameterValue range(Range value) {
+    return QueryParameterValue.newBuilder()
+        .setRangeValues(value)
+        .setType(StandardSQLTypeName.RANGE)
+        .build();
   }
 
   /**
@@ -442,6 +477,8 @@ public abstract class QueryParameterValue implements Serializable {
         throw new IllegalArgumentException("Cannot convert STRUCT to String value");
       case ARRAY:
         throw new IllegalArgumentException("Cannot convert ARRAY to String value");
+      case RANGE:
+        throw new IllegalArgumentException("Cannot convert RANGE to String value");
       case TIMESTAMP:
         if (value instanceof Long) {
           Timestamp timestamp = Timestamp.ofTimeMicroseconds((Long) value);
@@ -517,6 +554,22 @@ public abstract class QueryParameterValue implements Serializable {
       }
       valuePb.setStructValues(structValues);
     }
+    if (getType() == StandardSQLTypeName.RANGE) {
+      RangeValue rangeValue = new RangeValue();
+      if (!getRangeValues().getStart().isNull()) {
+        com.google.api.services.bigquery.model.QueryParameterValue startValue =
+            new com.google.api.services.bigquery.model.QueryParameterValue();
+        startValue.setValue(getRangeValues().getStart().getStringValue());
+        rangeValue.setStart(startValue);
+      }
+      if (!getRangeValues().getEnd().isNull()) {
+        com.google.api.services.bigquery.model.QueryParameterValue endValue =
+            new com.google.api.services.bigquery.model.QueryParameterValue();
+        endValue.setValue(getRangeValues().getEnd().getStringValue());
+        rangeValue.setEnd(endValue);
+      }
+      valuePb.setRangeValue(rangeValue);
+    }
     return valuePb;
   }
 
@@ -543,6 +596,13 @@ public abstract class QueryParameterValue implements Serializable {
         structTypes.add(structType);
       }
       typePb.setStructTypes(structTypes);
+    }
+    if (getType() == StandardSQLTypeName.RANGE
+        && getRangeValues() != null
+        && getRangeValues().getType() != null) {
+      QueryParameterType rangeTypePb = new QueryParameterType();
+      rangeTypePb.setType(getRangeValues().getType().getType());
+      typePb.setRangeElementType(rangeTypePb);
     }
     return typePb;
   }
@@ -592,6 +652,21 @@ public abstract class QueryParameterValue implements Serializable {
         }
         valueBuilder.setStructValues(structValues);
       }
+    } else if (type == StandardSQLTypeName.RANGE) {
+      Range.Builder range = Range.newBuilder();
+      if (valuePb.getRangeValue() != null) {
+        com.google.api.services.bigquery.model.RangeValue rangeValuePb = valuePb.getRangeValue();
+        if (rangeValuePb.getStart() != null && rangeValuePb.getStart().getValue() != null) {
+          range.setStart(valuePb.getRangeValue().getStart().getValue());
+        }
+        if (rangeValuePb.getEnd() != null && rangeValuePb.getEnd().getValue() != null) {
+          range.setEnd(valuePb.getRangeValue().getEnd().getValue());
+        }
+      }
+      if (typePb.getRangeElementType() != null && typePb.getRangeElementType().getType() != null) {
+        range.setType(FieldElementType.fromPb(typePb));
+      }
+      valueBuilder.setRangeValues(range.build());
     } else {
       valueBuilder.setValue(valuePb == null ? "" : valuePb.getValue());
     }

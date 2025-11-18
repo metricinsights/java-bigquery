@@ -18,7 +18,10 @@ package com.google.cloud.bigquery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.api.core.ApiFunction;
 import com.google.api.services.bigquery.model.JobConfigurationLoad;
+import com.google.cloud.StringEnumType;
+import com.google.cloud.StringEnumValue;
 import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -39,6 +42,7 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
 
   private final List<String> sourceUris;
   private final String fileSetSpecType;
+  private final String columnNameCharacterMap;
   private final TableId destinationTable;
   private final List<String> decimalTargetTypes;
   private final EncryptionConfiguration destinationEncryptionConfiguration;
@@ -59,16 +63,66 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
   private final RangePartitioning rangePartitioning;
   private final HivePartitioningOptions hivePartitioningOptions;
   private final String referenceFileSchemaUri;
-
   private final List<ConnectionProperty> connectionProperties;
-
   private final Boolean createSession;
+  private final String reservation;
+  private final String timeZone;
+  private final String dateFormat;
+  private final String datetimeFormat;
+  private final String timeFormat;
+  private final String timestampFormat;
+  private final SourceColumnMatch sourceColumnMatch;
+  private final List<String> nullMarkers;
+
+  public static final class SourceColumnMatch extends StringEnumValue {
+    private static final long serialVersionUID = 818920627219751207L;
+    private static final ApiFunction<String, SourceColumnMatch> CONSTRUCTOR =
+        new ApiFunction<String, SourceColumnMatch>() {
+          @Override
+          public SourceColumnMatch apply(String constant) {
+            return new SourceColumnMatch(constant);
+          }
+        };
+
+    private static final StringEnumType<SourceColumnMatch> type =
+        new StringEnumType<SourceColumnMatch>(SourceColumnMatch.class, CONSTRUCTOR);
+
+    public static final SourceColumnMatch SOURCE_COLUMN_MATCH_UNSPECIFIED =
+        type.createAndRegister("SOURCE_COLUMN_MATCH_UNSPECIFIED");
+    public static final SourceColumnMatch POSITION = type.createAndRegister("POSITION");
+
+    public static final SourceColumnMatch NAME = type.createAndRegister("NAME");
+
+    private SourceColumnMatch(String constant) {
+      super(constant);
+    }
+
+    /**
+     * Get the SourceColumnMatch for the given String constant, and throw an exception if the
+     * constant is not recognized.
+     */
+    public static SourceColumnMatch valueOfStrict(String constant) {
+      return type.valueOfStrict(constant);
+    }
+
+    /** Get the SourceColumnMatch for the given String constant, and allow unrecognized values. */
+    public static SourceColumnMatch valueOf(String constant) {
+      return type.valueOf(constant);
+    }
+
+    /** Return the known values for SourceColumnMatch. */
+    public static SourceColumnMatch[] values() {
+      return type.values();
+    }
+  }
 
   public static final class Builder extends JobConfiguration.Builder<LoadJobConfiguration, Builder>
       implements LoadConfiguration.Builder {
 
     private List<String> sourceUris;
     private String fileSetSpecType;
+    private String columnNameCharacterMap;
+
     private TableId destinationTable;
     private List<String> decimalTargetTypes;
     private EncryptionConfiguration destinationEncryptionConfiguration;
@@ -92,6 +146,14 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     private String referenceFileSchemaUri;
     private List<ConnectionProperty> connectionProperties;
     private Boolean createSession;
+    private String reservation;
+    private String timeZone;
+    private String dateFormat;
+    private String datetimeFormat;
+    private String timeFormat;
+    private String timestampFormat;
+    private SourceColumnMatch sourceColumnMatch;
+    private List<String> nullMarkers;
 
     private Builder() {
       super(Type.LOAD);
@@ -110,6 +172,7 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
       this.ignoreUnknownValues = loadConfiguration.ignoreUnknownValues;
       this.sourceUris = loadConfiguration.sourceUris;
       this.fileSetSpecType = loadConfiguration.fileSetSpecType;
+      this.columnNameCharacterMap = loadConfiguration.columnNameCharacterMap;
       this.schemaUpdateOptions = loadConfiguration.schemaUpdateOptions;
       this.autodetect = loadConfiguration.autodetect;
       this.destinationEncryptionConfiguration =
@@ -124,6 +187,14 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
       this.referenceFileSchemaUri = loadConfiguration.referenceFileSchemaUri;
       this.connectionProperties = loadConfiguration.connectionProperties;
       this.createSession = loadConfiguration.createSession;
+      this.reservation = loadConfiguration.reservation;
+      this.timeZone = loadConfiguration.timeZone;
+      this.dateFormat = loadConfiguration.dateFormat;
+      this.datetimeFormat = loadConfiguration.datetimeFormat;
+      this.timeFormat = loadConfiguration.timeFormat;
+      this.timestampFormat = loadConfiguration.timestampFormat;
+      this.sourceColumnMatch = loadConfiguration.sourceColumnMatch;
+      this.nullMarkers = loadConfiguration.nullMarkers;
     }
 
     private Builder(com.google.api.services.bigquery.model.JobConfiguration configurationPb) {
@@ -148,6 +219,7 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
         this.nullMarker = loadConfigurationPb.getNullMarker();
       }
       if (loadConfigurationPb.getAllowJaggedRows() != null
+          || loadConfigurationPb.getPreserveAsciiControlCharacters() != null
           || loadConfigurationPb.getAllowQuotedNewlines() != null
           || loadConfigurationPb.getEncoding() != null
           || loadConfigurationPb.getFieldDelimiter() != null
@@ -158,6 +230,10 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
                 .setEncoding(loadConfigurationPb.getEncoding())
                 .setFieldDelimiter(loadConfigurationPb.getFieldDelimiter())
                 .setQuote(loadConfigurationPb.getQuote());
+        if (loadConfigurationPb.getPreserveAsciiControlCharacters() != null) {
+          builder.setPreserveAsciiControlCharacters(
+              loadConfigurationPb.getPreserveAsciiControlCharacters());
+        }
         if (loadConfigurationPb.getAllowJaggedRows() != null) {
           builder.setAllowJaggedRows(loadConfigurationPb.getAllowJaggedRows());
         }
@@ -180,6 +256,9 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
       }
       if (loadConfigurationPb.getFileSetSpecType() != null) {
         this.fileSetSpecType = loadConfigurationPb.getFileSetSpecType();
+      }
+      if (loadConfigurationPb.getColumnNameCharacterMap() != null) {
+        this.columnNameCharacterMap = loadConfigurationPb.getColumnNameCharacterMap();
       }
       if (loadConfigurationPb.getSchemaUpdateOptions() != null) {
         ImmutableList.Builder<JobInfo.SchemaUpdateOption> schemaUpdateOptionsBuilder =
@@ -227,6 +306,31 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
                 loadConfigurationPb.getConnectionProperties(), ConnectionProperty.FROM_PB_FUNCTION);
       }
       createSession = loadConfigurationPb.getCreateSession();
+      if (configurationPb.getReservation() != null) {
+        this.reservation = configurationPb.getReservation();
+      }
+      if (loadConfigurationPb.getTimeZone() != null) {
+        this.timeZone = loadConfigurationPb.getTimeZone();
+      }
+      if (loadConfigurationPb.getDateFormat() != null) {
+        this.dateFormat = loadConfigurationPb.getDateFormat();
+      }
+      if (loadConfigurationPb.getDatetimeFormat() != null) {
+        this.datetimeFormat = loadConfigurationPb.getDatetimeFormat();
+      }
+      if (loadConfigurationPb.getTimeFormat() != null) {
+        this.timeFormat = loadConfigurationPb.getTimeFormat();
+      }
+      if (loadConfigurationPb.getTimestampFormat() != null) {
+        this.timestampFormat = loadConfigurationPb.getTimestampFormat();
+      }
+      if (loadConfigurationPb.getSourceColumnMatch() != null) {
+        this.sourceColumnMatch =
+            SourceColumnMatch.valueOf(loadConfigurationPb.getSourceColumnMatch());
+      }
+      if (loadConfigurationPb.getNullMarkers() != null) {
+        this.nullMarkers = loadConfigurationPb.getNullMarkers();
+      }
     }
 
     @Override
@@ -324,6 +428,20 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     }
 
     /**
+     * [Optional] Character map supported for column names in CSV/Parquet loads. Defaults to STRICT
+     * and can be overridden by Project Config Service. Using this option with unsupporting load
+     * formats will result in an error.
+     *
+     * @see <a
+     *     href="https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#columnnamecharactermap">
+     *     ColumnNameCharacterMap</a>
+     */
+    public Builder setColumnNameCharacterMap(String columnNameCharacterMap) {
+      this.columnNameCharacterMap = columnNameCharacterMap;
+      return this;
+    }
+
+    /**
      * Defines the list of possible SQL data types to which the source decimal values are converted.
      * This list and the precision and the scale parameters of the decimal field determine the
      * target type. In the order of NUMERIC, BIGNUMERIC, and STRING, a type is picked if it is in
@@ -411,6 +529,75 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
       return this;
     }
 
+    /**
+     * [Optional] The reservation that job would use. User can specify a reservation to execute the
+     * job. If reservation is not set, reservation is determined based on the rules defined by the
+     * reservation assignments. The expected format is
+     * `projects/{project}/locations/{location}/reservations/{reservation}`.
+     *
+     * @param reservation reservation or {@code null} for none
+     */
+    public Builder setReservation(String reservation) {
+      this.reservation = reservation;
+      return this;
+    }
+
+    /**
+     * [Experimental] Default time zone that will apply when parsing timestamp values that have no
+     * specific time zone.
+     */
+    public Builder setTimeZone(String timeZone) {
+      this.timeZone = timeZone;
+      return this;
+    }
+
+    /** Date format used for parsing DATE values. */
+    public Builder setDateFormat(String dateFormat) {
+      this.dateFormat = dateFormat;
+      return this;
+    }
+
+    /** Date format used for parsing DATETIME values. */
+    public Builder setDatetimeFormat(String datetimeFormat) {
+      this.datetimeFormat = datetimeFormat;
+      return this;
+    }
+
+    /** Date format used for parsing TIME values. */
+    public Builder setTimeFormat(String timeFormat) {
+      this.timeFormat = timeFormat;
+      return this;
+    }
+
+    /** Date format used for parsing TIMESTAMP values. */
+    public Builder setTimestampFormat(String timestampFormat) {
+      this.timestampFormat = timestampFormat;
+      return this;
+    }
+
+    /**
+     * Controls the strategy used to match loaded columns to the schema. If not set, a sensible
+     * default is chosen based on how the schema is provided. If autodetect is used, then columns
+     * are matched by name. Otherwise, columns are matched by position. This is done to keep the
+     * behavior backward-compatible.
+     */
+    public Builder setSourceColumnMatch(SourceColumnMatch sourceColumnMatch) {
+      this.sourceColumnMatch = sourceColumnMatch;
+      return this;
+    }
+
+    /**
+     * A list of strings represented as SQL NULL value in a CSV file. null_marker and null_markers
+     * can't be set at the same time. If null_marker is set, null_markers has to be not set. If
+     * null_markers is set, null_marker has to be not set. If both null_marker and null_markers are
+     * set at the same time, a user error would be thrown. Any strings listed in null_markers,
+     * including empty string would be interpreted as SQL NULL. This applies to all column types.
+     */
+    public Builder setNullMarkers(List<String> nullMarkers) {
+      this.nullMarkers = nullMarkers;
+      return this;
+    }
+
     @Override
     public LoadJobConfiguration build() {
       return new LoadJobConfiguration(this);
@@ -421,6 +608,7 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     super(builder);
     this.sourceUris = builder.sourceUris;
     this.fileSetSpecType = builder.fileSetSpecType;
+    this.columnNameCharacterMap = builder.columnNameCharacterMap;
     this.destinationTable = builder.destinationTable;
     this.decimalTargetTypes = builder.decimalTargetTypes;
     this.createDisposition = builder.createDisposition;
@@ -443,6 +631,14 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     this.referenceFileSchemaUri = builder.referenceFileSchemaUri;
     this.connectionProperties = builder.connectionProperties;
     this.createSession = builder.createSession;
+    this.reservation = builder.reservation;
+    this.timeZone = builder.timeZone;
+    this.dateFormat = builder.dateFormat;
+    this.datetimeFormat = builder.datetimeFormat;
+    this.timeFormat = builder.timeFormat;
+    this.timestampFormat = builder.timestampFormat;
+    this.sourceColumnMatch = builder.sourceColumnMatch;
+    this.nullMarkers = builder.nullMarkers;
   }
 
   @Override
@@ -519,6 +715,17 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     return fileSetSpecType;
   }
 
+  /**
+   * Returns the column name character map used in CSV/Parquet loads.
+   *
+   * @see <a
+   *     href="https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#columnnamecharactermap">
+   *     ColumnNameCharacterMap</a>
+   */
+  public String getColumnNameCharacterMap() {
+    return columnNameCharacterMap;
+  }
+
   public List<String> getDecimalTargetTypes() {
     return decimalTargetTypes;
   }
@@ -578,6 +785,49 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     return createSession;
   }
 
+  /** Returns the reservation associated with this job */
+  public String getReservation() {
+    return reservation;
+  }
+
+  /**
+   * Returns the time zone used when parsing timestamp values that don't have specific time zone
+   * information.
+   */
+  public String getTimeZone() {
+    return timeZone;
+  }
+
+  /** Returns the format used to parse DATE values. */
+  public String getDateFormat() {
+    return dateFormat;
+  }
+
+  /** Returns the format used to parse DATETIME values. */
+  public String getDatetimeFormat() {
+    return datetimeFormat;
+  }
+
+  /** Returns the format used to parse TIME values. */
+  public String getTimeFormat() {
+    return timeFormat;
+  }
+
+  /** Returns the format used to parse TIMESTAMP values. */
+  public String getTimestampFormat() {
+    return timestampFormat;
+  }
+
+  /** Returns the strategy used to match loaded columns to the schema, either POSITION or NAME. */
+  public SourceColumnMatch getSourceColumnMatch() {
+    return sourceColumnMatch;
+  }
+
+  /** Returns a list of strings represented as SQL NULL value in a CSV file. */
+  public List<String> getNullMarkers() {
+    return nullMarkers;
+  }
+
   @Override
   public Builder toBuilder() {
     return new Builder(this);
@@ -598,6 +848,7 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
         .add("ignoreUnknownValue", ignoreUnknownValues)
         .add("sourceUris", sourceUris)
         .add("fileSetSpecType", fileSetSpecType)
+        .add("columnNameCharacterMap", columnNameCharacterMap)
         .add("schemaUpdateOptions", schemaUpdateOptions)
         .add("autodetect", autodetect)
         .add("timePartitioning", timePartitioning)
@@ -609,7 +860,15 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
         .add("hivePartitioningOptions", hivePartitioningOptions)
         .add("referenceFileSchemaUri", referenceFileSchemaUri)
         .add("connectionProperties", connectionProperties)
-        .add("createSession", createSession);
+        .add("createSession", createSession)
+        .add("reservation", reservation)
+        .add("timeZone", timeZone)
+        .add("dateFormat", dateFormat)
+        .add("datetimeFormat", datetimeFormat)
+        .add("timeFormat", timeFormat)
+        .add("timestampFormat", timestampFormat)
+        .add("sourceColumnMatch", sourceColumnMatch)
+        .add("nullMarkers", nullMarkers);
   }
 
   @Override
@@ -653,6 +912,7 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
           .setAllowJaggedRows(csvOptions.allowJaggedRows())
           .setAllowQuotedNewlines(csvOptions.allowQuotedNewLines())
           .setEncoding(csvOptions.getEncoding())
+          .setPreserveAsciiControlCharacters(csvOptions.getPreserveAsciiControlCharacters())
           .setQuote(csvOptions.getQuote());
       if (csvOptions.getSkipLeadingRows() != null) {
         // todo(mziccard) remove checked cast or comment when #1044 is closed
@@ -680,6 +940,9 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     }
     if (fileSetSpecType != null) {
       loadConfigurationPb.setFileSetSpecType(fileSetSpecType);
+    }
+    if (columnNameCharacterMap != null) {
+      loadConfigurationPb.setColumnNameCharacterMap(columnNameCharacterMap);
     }
     if (decimalTargetTypes != null) {
       loadConfigurationPb.setDecimalTargetTypes(ImmutableList.copyOf(decimalTargetTypes));
@@ -724,6 +987,30 @@ public final class LoadJobConfiguration extends JobConfiguration implements Load
     }
     if (createSession != null) {
       loadConfigurationPb.setCreateSession(createSession);
+    }
+    if (reservation != null) {
+      jobConfiguration.setReservation(reservation);
+    }
+    if (timeZone != null) {
+      loadConfigurationPb.setTimeZone(timeZone);
+    }
+    if (dateFormat != null) {
+      loadConfigurationPb.setDateFormat(dateFormat);
+    }
+    if (datetimeFormat != null) {
+      loadConfigurationPb.setDatetimeFormat(datetimeFormat);
+    }
+    if (timeFormat != null) {
+      loadConfigurationPb.setTimeFormat(timeFormat);
+    }
+    if (timestampFormat != null) {
+      loadConfigurationPb.setTimestampFormat(timestampFormat);
+    }
+    if (sourceColumnMatch != null) {
+      loadConfigurationPb.setSourceColumnMatch(sourceColumnMatch.toString());
+    }
+    if (nullMarkers != null) {
+      loadConfigurationPb.setNullMarkers(nullMarkers);
     }
 
     jobConfiguration.setLoad(loadConfigurationPb);

@@ -17,14 +17,17 @@
 package com.google.cloud.bigquery;
 
 import com.google.api.core.ApiFunction;
+import com.google.api.services.bigquery.model.ExportDataStatistics;
 import com.google.api.services.bigquery.model.JobConfiguration;
 import com.google.api.services.bigquery.model.JobStatistics2;
 import com.google.api.services.bigquery.model.JobStatistics3;
 import com.google.api.services.bigquery.model.JobStatistics4;
 import com.google.api.services.bigquery.model.JobStatistics5;
 import com.google.api.services.bigquery.model.QueryParameter;
+import com.google.auto.value.AutoValue;
 import com.google.cloud.StringEnumType;
 import com.google.cloud.StringEnumValue;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
@@ -32,12 +35,13 @@ import com.google.common.collect.Lists;
 import java.io.Serializable;
 import java.util.List;
 import java.util.Objects;
+import javax.annotation.Nullable;
 import org.checkerframework.checker.nullness.compatqual.NullableDecl;
 
 /** A Google BigQuery Job statistics. */
 public abstract class JobStatistics implements Serializable {
 
-  private static final long serialVersionUID = 1433024714741660399L;
+  private static final long serialVersionUID = 1433024714741660400L;
 
   private final Long creationTime;
   private final Long endTime;
@@ -48,6 +52,7 @@ public abstract class JobStatistics implements Serializable {
   private final List<ReservationUsage> reservationUsage;
   private final TransactionInfo transactionInfo;
   private final SessionInfo sessionInfo;
+  private final Long totalSlotMs;
 
   /** A Google BigQuery Copy Job statistics. */
   public static class CopyStatistics extends JobStatistics {
@@ -387,23 +392,24 @@ public abstract class JobStatistics implements Serializable {
   /** A Google BigQuery Query Job statistics. */
   public static class QueryStatistics extends JobStatistics {
 
-    private static final long serialVersionUID = 7539354109226732353L;
+    private static final long serialVersionUID = 7539354109226732354L;
 
     private final BiEngineStats biEngineStats;
     private final Integer billingTier;
     private final Boolean cacheHit;
+    private Boolean useReadApi;
     private final String ddlOperationPerformed;
     private final TableId ddlTargetTable;
     private final RoutineId ddlTargetRoutine;
     private final Long estimatedBytesProcessed;
     private final Long numDmlAffectedRows;
     private final DmlStats dmlStats;
+    private final ExportDataStats exportDataStats;
     private final List<TableId> referencedTables;
     private final StatementType statementType;
     private final Long totalBytesBilled;
     private final Long totalBytesProcessed;
     private final Long totalPartitionsProcessed;
-    private final Long totalSlotMs;
     private final List<QueryStage> queryPlan;
     private final List<TimelineSample> timeline;
     private final Schema schema;
@@ -448,6 +454,44 @@ public abstract class JobStatistics implements Serializable {
       public static final StatementType DROP_FUNCTION = type.createAndRegister("DROP_FUNCTION");
       public static final StatementType DROP_PROCEDURE = type.createAndRegister("DROP_PROCEDURE");
       public static final StatementType MERGE = type.createAndRegister("MERGE");
+      public static final StatementType CREATE_MATERIALIZED_VIEW =
+          type.createAndRegister("CREATE_MATERIALIZED_VIEW");
+      public static final StatementType CREATE_TABLE_FUNCTION =
+          type.createAndRegister("CREATE_TABLE_FUNCTION");
+      public static final StatementType CREATE_ROW_ACCESS_POLICY =
+          type.createAndRegister("CREATE_ROW_ACCESS_POLICY");
+      public static final StatementType CREATE_SCHEMA = type.createAndRegister("CREATE_SCHEMA");
+      public static final StatementType CREATE_SNAPSHOT_TABLE =
+          type.createAndRegister("CREATE_SNAPSHOT_TABLE");
+      public static final StatementType CREATE_SEARCH_INDEX =
+          type.createAndRegister("CREATE_SEARCH_INDEX");
+      public static final StatementType DROP_EXTERNAL_TABLE =
+          type.createAndRegister("DROP_EXTERNAL_TABLE");
+
+      public static final StatementType DROP_MODEL = type.createAndRegister("DROP_MODEL");
+      public static final StatementType DROP_MATERIALIZED_VIEW =
+          type.createAndRegister("DROP_MATERIALIZED_VIEW");
+
+      public static final StatementType DROP_TABLE_FUNCTION =
+          type.createAndRegister("DROP_TABLE_FUNCTION");
+      public static final StatementType DROP_SEARCH_INDEX =
+          type.createAndRegister("DROP_SEARCH_INDEX");
+      public static final StatementType DROP_SCHEMA = type.createAndRegister("DROP_SCHEMA");
+      public static final StatementType DROP_SNAPSHOT_TABLE =
+          type.createAndRegister("DROP_SNAPSHOT_TABLE");
+      public static final StatementType DROP_ROW_ACCESS_POLICY =
+          type.createAndRegister("DROP_ROW_ACCESS_POLICY");
+      public static final StatementType ALTER_MATERIALIZED_VIEW =
+          type.createAndRegister("ALTER_MATERIALIZED_VIEW");
+      public static final StatementType ALTER_SCHEMA = type.createAndRegister("ALTER_SCHEMA");
+      public static final StatementType SCRIPT = type.createAndRegister("SCRIPT");
+      public static final StatementType TRUNCATE_TABLE = type.createAndRegister("TRUNCATE_TABLE");
+      public static final StatementType CREATE_EXTERNAL_TABLE =
+          type.createAndRegister("CREATE_EXTERNAL_TABLE");
+      public static final StatementType EXPORT_DATA = type.createAndRegister("EXPORT_DATA");
+      public static final StatementType EXPORT_MODEL = type.createAndRegister("EXPORT_MODEL");
+      public static final StatementType LOAD_DATA = type.createAndRegister("LOAD_DATA");
+      public static final StatementType CALL = type.createAndRegister("CALL");
 
       private StatementType(String constant) {
         super(constant);
@@ -472,6 +516,80 @@ public abstract class JobStatistics implements Serializable {
       }
     }
 
+    /**
+     * Statistics for the EXPORT DATA statement as part of Query Job. EXTRACT JOB statistics are
+     * populated in ExtractStatistics.
+     */
+    @AutoValue
+    public abstract static class ExportDataStats implements Serializable {
+      private static final long serialVersionUID = 1L;
+
+      /**
+       * Returns number of destination files generated in case of EXPORT DATA statement only.
+       *
+       * @return value or {@code null} for none
+       */
+      @Nullable
+      public abstract Long getFileCount();
+
+      /**
+       * Returns number of destination rows generated in case of EXPORT DATA statement only.
+       *
+       * @return value or {@code null} for none
+       */
+      @Nullable
+      public abstract Long getRowCount();
+
+      public abstract Builder toBuilder();
+
+      public static Builder newBuilder() {
+        return new AutoValue_JobStatistics_QueryStatistics_ExportDataStats.Builder();
+      }
+
+      static ExportDataStats fromPb(ExportDataStatistics exportDataStatisticsPb) {
+        Builder builder = newBuilder();
+        if (exportDataStatisticsPb.getFileCount() != null) {
+          builder.setFileCount(exportDataStatisticsPb.getFileCount());
+        }
+        if (exportDataStatisticsPb.getRowCount() != null) {
+          builder.setRowCount(exportDataStatisticsPb.getRowCount());
+        }
+        return builder.build();
+      }
+
+      ExportDataStatistics toPb() {
+        ExportDataStatistics exportDataStatisticsPb = new ExportDataStatistics();
+        if (getFileCount() != null) {
+          exportDataStatisticsPb.setFileCount(getFileCount());
+        }
+        if (getRowCount() != null) {
+          exportDataStatisticsPb.setRowCount(getRowCount());
+        }
+        return exportDataStatisticsPb;
+      }
+
+      @AutoValue.Builder
+      public abstract static class Builder {
+
+        /**
+         * Number of destination files generated in case of EXPORT DATA statement only.
+         *
+         * @param fileCount fileCount or {@code null} for none
+         */
+        public abstract Builder setFileCount(Long fileCount);
+
+        /**
+         * Number of destination rows generated in case of EXPORT DATA statement only.
+         *
+         * @param rowCount rowCount or {@code null} for none
+         */
+        public abstract Builder setRowCount(Long rowCount);
+
+        /** Creates a {@code ExportDataStats} object. */
+        public abstract ExportDataStats build();
+      }
+    }
+
     static final class Builder extends JobStatistics.Builder<QueryStatistics, Builder> {
 
       private BiEngineStats biEngineStats;
@@ -483,12 +601,12 @@ public abstract class JobStatistics implements Serializable {
       private Long estimatedBytesProcessed;
       private Long numDmlAffectedRows;
       private DmlStats dmlStats;
+      private ExportDataStats exportDataStats;
       private List<TableId> referencedTables;
       private StatementType statementType;
       private Long totalBytesBilled;
       private Long totalBytesProcessed;
       private Long totalPartitionsProcessed;
-      private Long totalSlotMs;
       private List<QueryStage> queryPlan;
       private List<TimelineSample> timeline;
       private Schema schema;
@@ -520,7 +638,6 @@ public abstract class JobStatistics implements Serializable {
           this.totalBytesBilled = statisticsPb.getQuery().getTotalBytesBilled();
           this.totalBytesProcessed = statisticsPb.getQuery().getTotalBytesProcessed();
           this.totalPartitionsProcessed = statisticsPb.getQuery().getTotalPartitionsProcessed();
-          this.totalSlotMs = statisticsPb.getQuery().getTotalSlotMs();
           if (statisticsPb.getQuery().getStatementType() != null) {
             this.statementType = StatementType.valueOf(statisticsPb.getQuery().getStatementType());
           }
@@ -552,6 +669,10 @@ public abstract class JobStatistics implements Serializable {
           }
           if (statisticsPb.getQuery().getDmlStats() != null) {
             this.dmlStats = DmlStats.fromPb(statisticsPb.getQuery().getDmlStats());
+          }
+          if (statisticsPb.getQuery().getExportDataStatistics() != null) {
+            this.exportDataStats =
+                ExportDataStats.fromPb(statisticsPb.getQuery().getExportDataStatistics());
           }
         }
       }
@@ -601,6 +722,11 @@ public abstract class JobStatistics implements Serializable {
         return self();
       }
 
+      Builder setExportDataStats(ExportDataStats exportDataStats) {
+        this.exportDataStats = exportDataStats;
+        return self();
+      }
+
       Builder setReferenceTables(List<TableId> referencedTables) {
         this.referencedTables = referencedTables;
         return self();
@@ -628,11 +754,6 @@ public abstract class JobStatistics implements Serializable {
 
       Builder setTotalPartitionsProcessed(Long totalPartitionsProcessed) {
         this.totalPartitionsProcessed = totalPartitionsProcessed;
-        return self();
-      }
-
-      Builder setTotalSlotMs(Long totalSlotMs) {
-        this.totalSlotMs = totalSlotMs;
         return self();
       }
 
@@ -677,18 +798,19 @@ public abstract class JobStatistics implements Serializable {
       this.biEngineStats = builder.biEngineStats;
       this.billingTier = builder.billingTier;
       this.cacheHit = builder.cacheHit;
+      this.useReadApi = false;
       this.ddlOperationPerformed = builder.ddlOperationPerformed;
       this.ddlTargetTable = builder.ddlTargetTable;
       this.ddlTargetRoutine = builder.ddlTargetRoutine;
       this.estimatedBytesProcessed = builder.estimatedBytesProcessed;
       this.numDmlAffectedRows = builder.numDmlAffectedRows;
       this.dmlStats = builder.dmlStats;
+      this.exportDataStats = builder.exportDataStats;
       this.referencedTables = builder.referencedTables;
       this.statementType = builder.statementType;
       this.totalBytesBilled = builder.totalBytesBilled;
       this.totalBytesProcessed = builder.totalBytesProcessed;
       this.totalPartitionsProcessed = builder.totalPartitionsProcessed;
-      this.totalSlotMs = builder.totalSlotMs;
       this.queryPlan = builder.queryPlan;
       this.timeline = builder.timeline;
       this.schema = builder.schema;
@@ -714,6 +836,18 @@ public abstract class JobStatistics implements Serializable {
      */
     public Boolean getCacheHit() {
       return cacheHit;
+    }
+
+    /** Returns whether the query result is read from the high throughput ReadAPI. */
+    @VisibleForTesting
+    public Boolean getUseReadApi() {
+      return useReadApi;
+    }
+
+    /** Sets internal state to reflect the use of the high throughput ReadAPI. */
+    @VisibleForTesting
+    public void setUseReadApi(Boolean useReadApi) {
+      this.useReadApi = useReadApi;
     }
 
     /** [BETA] For DDL queries, returns the operation applied to the DDL target table. */
@@ -749,6 +883,11 @@ public abstract class JobStatistics implements Serializable {
       return dmlStats;
     }
 
+    /** Detailed statistics for EXPORT DATA statement. */
+    public ExportDataStats getExportDataStats() {
+      return exportDataStats;
+    }
+
     /**
      * Referenced tables for the job. Queries that reference more than 50 tables will not have a
      * complete list.
@@ -778,11 +917,6 @@ public abstract class JobStatistics implements Serializable {
     /** Total number of partitions processed from all partitioned tables referenced in the job. */
     public Long getTotalPartitionsProcessed() {
       return totalPartitionsProcessed;
-    }
-
-    /** Returns the slot-milliseconds consumed by the query. */
-    public Long getTotalSlotMs() {
-      return totalSlotMs;
     }
 
     /**
@@ -890,7 +1024,6 @@ public abstract class JobStatistics implements Serializable {
       queryStatisticsPb.setTotalBytesBilled(totalBytesBilled);
       queryStatisticsPb.setTotalBytesProcessed(totalBytesProcessed);
       queryStatisticsPb.setTotalPartitionsProcessed(totalPartitionsProcessed);
-      queryStatisticsPb.setTotalSlotMs(totalSlotMs);
       if (ddlTargetTable != null) {
         queryStatisticsPb.setDdlTargetTable(ddlTargetTable.toPb());
       }
@@ -899,6 +1032,9 @@ public abstract class JobStatistics implements Serializable {
       }
       if (dmlStats != null) {
         queryStatisticsPb.setDmlStats(dmlStats.toPb());
+      }
+      if (exportDataStats != null) {
+        queryStatisticsPb.setExportDataStatistics(exportDataStats.toPb());
       }
       if (referencedTables != null) {
         queryStatisticsPb.setReferencedTables(
@@ -1264,7 +1400,8 @@ public abstract class JobStatistics implements Serializable {
       private String name;
       private Long slotMs;
 
-      private Builder() {};
+      private Builder() {}
+      ;
 
       Builder setName(String name) {
         this.name = name;
@@ -1350,7 +1487,8 @@ public abstract class JobStatistics implements Serializable {
 
       private String transactionId;
 
-      private Builder() {};
+      private Builder() {}
+      ;
 
       Builder setTransactionId(String transactionId) {
         this.transactionId = transactionId;
@@ -1421,7 +1559,8 @@ public abstract class JobStatistics implements Serializable {
 
       private String sessionId;
 
-      private Builder() {};
+      private Builder() {}
+      ;
 
       Builder setSessionId(String sessionId) {
         this.sessionId = sessionId;
@@ -1492,6 +1631,7 @@ public abstract class JobStatistics implements Serializable {
     private List<ReservationUsage> reservationUsage;
     private TransactionInfo transactionInfo;
     private SessionInfo sessionInfo;
+    private Long totalSlotMs;
 
     protected Builder() {}
 
@@ -1501,6 +1641,9 @@ public abstract class JobStatistics implements Serializable {
       this.startTime = statisticsPb.getStartTime();
       this.numChildJobs = statisticsPb.getNumChildJobs();
       this.parentJobId = statisticsPb.getParentJobId();
+      if (statisticsPb.getTotalSlotMs() != null) {
+        this.totalSlotMs = statisticsPb.getTotalSlotMs();
+      }
       if (statisticsPb.getScriptStatistics() != null) {
         this.scriptStatistics = ScriptStatistics.fromPb(statisticsPb.getScriptStatistics());
       }
@@ -1536,6 +1679,11 @@ public abstract class JobStatistics implements Serializable {
       return self();
     }
 
+    B setTotalSlotMs(Long totalSlotMs) {
+      this.totalSlotMs = totalSlotMs;
+      return self();
+    }
+
     abstract T build();
   }
 
@@ -1549,6 +1697,7 @@ public abstract class JobStatistics implements Serializable {
     this.reservationUsage = builder.reservationUsage;
     this.transactionInfo = builder.transactionInfo;
     this.sessionInfo = builder.sessionInfo;
+    this.totalSlotMs = builder.totalSlotMs;
   }
 
   /** Returns the creation time of the job in milliseconds since epoch. */
@@ -1602,6 +1751,11 @@ public abstract class JobStatistics implements Serializable {
     return sessionInfo;
   }
 
+  /** Returns the slot-milliseconds for the job. */
+  public Long getTotalSlotMs() {
+    return totalSlotMs;
+  }
+
   ToStringHelper toStringHelper() {
     return MoreObjects.toStringHelper(this)
         .add("creationTime", creationTime)
@@ -1612,7 +1766,8 @@ public abstract class JobStatistics implements Serializable {
         .add("scriptStatistics", scriptStatistics)
         .add("reservationUsage", reservationUsage)
         .add("transactionInfo", transactionInfo)
-        .add("sessionInfo", sessionInfo);
+        .add("sessionInfo", sessionInfo)
+        .add("totalSlotMs", totalSlotMs);
   }
 
   @Override
@@ -1630,7 +1785,8 @@ public abstract class JobStatistics implements Serializable {
         scriptStatistics,
         reservationUsage,
         transactionInfo,
-        sessionInfo);
+        sessionInfo,
+        totalSlotMs);
   }
 
   final boolean baseEquals(JobStatistics jobStatistics) {
@@ -1645,6 +1801,7 @@ public abstract class JobStatistics implements Serializable {
     statistics.setStartTime(startTime);
     statistics.setNumChildJobs(numChildJobs);
     statistics.setParentJobId(parentJobId);
+    statistics.setTotalSlotMs(totalSlotMs);
     if (scriptStatistics != null) {
       statistics.setScriptStatistics(scriptStatistics.toPb());
     }
