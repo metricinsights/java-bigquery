@@ -44,6 +44,9 @@ import com.google.cloud.http.HttpTransportOptions;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.util.List;
@@ -70,6 +73,7 @@ public class HttpBigQueryRpc implements BigQueryRpc {
               .setFriendlyName(datasetPb.getFriendlyName())
               .setId(datasetPb.getId())
               .setKind(datasetPb.getKind())
+              .setLocation(datasetPb.getLocation())
               .setLabels(datasetPb.getLabels());
         }
       };
@@ -115,13 +119,7 @@ public class HttpBigQueryRpc implements BigQueryRpc {
   @Override
   public Dataset getDataset(String projectId, String datasetId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .datasets()
-          .get(projectId, datasetId)
-          .setFields(Option.FIELDS.getString(options))
-          .setPrettyPrint(false)
-          .execute();
+      return getDatasetSkipExceptionTranslation(projectId, datasetId, options);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -131,29 +129,103 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Dataset getDatasetSkipExceptionTranslation(
+      String projectId, String datasetId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Datasets.Get bqGetRequest =
+        bigquery
+            .datasets()
+            .get(projectId, datasetId)
+            .setFields(Option.FIELDS.getString(options))
+            .setPrettyPrint(false);
+    if (options.containsKey(Option.ACCESS_POLICY_VERSION)) {
+      bqGetRequest.setAccessPolicyVersion((Integer) options.get(Option.ACCESS_POLICY_VERSION));
+    }
+    if (options.containsKey(Option.DATASET_VIEW)) {
+      bqGetRequest.setDatasetView(options.get(Option.DATASET_VIEW).toString());
+    }
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getDataset = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getDataset =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getDataset")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "DatasetService")
+              .setAttribute("bq.rpc.method", "GetDataset")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+
+    Dataset dataset = bqGetRequest.execute();
+    if (getDataset != null) {
+      getDataset.setAttribute("bq.rpc.response.dataset.id", dataset.getId());
+      getDataset.end();
+    }
+    return dataset;
+  }
+
   @Override
   public Tuple<String, Iterable<Dataset>> listDatasets(String projectId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      DatasetList datasetsList =
-          bigquery
-              .datasets()
-              .list(projectId)
-              .setPrettyPrint(false)
-              .setAll(Option.ALL_DATASETS.getBoolean(options))
-              .setFilter(Option.LABEL_FILTER.getString(options))
-              .setMaxResults(Option.MAX_RESULTS.getLong(options))
-              .setPageToken(Option.PAGE_TOKEN.getString(options))
-              .execute();
-      Iterable<DatasetList.Datasets> datasets = datasetsList.getDatasets();
-      return Tuple.of(
-          datasetsList.getNextPageToken(),
-          Iterables.transform(
-              datasets != null ? datasets : ImmutableList.<DatasetList.Datasets>of(),
-              LIST_TO_DATASET));
+      return listDatasetsSkipExceptionTranslation(projectId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Tuple<String, Iterable<Dataset>> listDatasetsSkipExceptionTranslation(
+      String projectId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Datasets.List datasetsListRequest =
+        bigquery
+            .datasets()
+            .list(projectId)
+            .setPrettyPrint(false)
+            .setAll(Option.ALL_DATASETS.getBoolean(options))
+            .setFilter(Option.LABEL_FILTER.getString(options))
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options));
+
+    datasetsListRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listDatasets = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listDatasets =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listDatasets")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "DatasetService")
+              .setAttribute("bq.rpc.method", "ListDatasets")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", datasetsListRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+
+    DatasetList datasetsList = datasetsListRequest.execute();
+    Iterable<DatasetList.Datasets> datasets = datasetsList.getDatasets();
+    if (listDatasets != null) {
+      listDatasets.setAttribute("bq.rpc.next_page_token", datasetsList.getNextPageToken());
+      listDatasets.end();
+    }
+    return Tuple.of(
+        datasetsList.getNextPageToken(),
+        Iterables.transform(
+            datasets != null ? datasets : ImmutableList.<DatasetList.Datasets>of(),
+            LIST_TO_DATASET));
   }
 
   @Override
@@ -179,96 +251,249 @@ public class HttpBigQueryRpc implements BigQueryRpc {
   @Override
   public Dataset create(Dataset dataset, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .datasets()
-          .insert(dataset.getDatasetReference().getProjectId(), dataset)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return createSkipExceptionTranslation(dataset, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Dataset createSkipExceptionTranslation(Dataset dataset, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    Bigquery.Datasets.Insert bqCreateRequest =
+        bigquery
+            .datasets()
+            .insert(dataset.getDatasetReference().getProjectId(), dataset)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+    if (options.containsKey(Option.ACCESS_POLICY_VERSION)) {
+      bqCreateRequest.setAccessPolicyVersion((Integer) options.get(Option.ACCESS_POLICY_VERSION));
+    }
+    bqCreateRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span createDataset = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      createDataset =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.createDataset")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "DatasetService")
+              .setAttribute("bq.rpc.method", "InsertDataset")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Dataset datasetResponse = bqCreateRequest.execute();
+    if (createDataset != null) {
+      createDataset.setAttribute("bq.rpc.response.dataset.id", datasetResponse.getId());
+      createDataset.end();
+    }
+    return datasetResponse;
   }
 
   @Override
   public Table create(Table table, Map<Option, ?> options) {
     try {
-      validateRPC();
-      // unset the type, as it is output only
-      table.setType(null);
-      TableReference reference = table.getTableReference();
-      return bigquery
-          .tables()
-          .insert(reference.getProjectId(), reference.getDatasetId(), table)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return createSkipExceptionTranslation(table, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Table createSkipExceptionTranslation(Table table, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    // unset the type, as it is output only
+    table.setType(null);
+    TableReference reference = table.getTableReference();
+    Bigquery.Tables.Insert bqCreateRequest =
+        bigquery
+            .tables()
+            .insert(reference.getProjectId(), reference.getDatasetId(), table)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqCreateRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span createTable = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      createTable =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.createTable")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "InsertTable")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Table tableResponse = bqCreateRequest.execute();
+    if (createTable != null) {
+      createTable.setAttribute("bq.rpc.response.table.id", tableResponse.getId());
+      createTable.end();
+    }
+    return tableResponse;
   }
 
   @Override
   public Routine create(Routine routine, Map<Option, ?> options) {
     try {
-      validateRPC();
-      RoutineReference reference = routine.getRoutineReference();
-      return bigquery
-          .routines()
-          .insert(reference.getProjectId(), reference.getDatasetId(), routine)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return createSkipExceptionTranslation(routine, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Routine createSkipExceptionTranslation(Routine routine, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    RoutineReference reference = routine.getRoutineReference();
+    Bigquery.Routines.Insert bqCreateRequest =
+        bigquery
+            .routines()
+            .insert(reference.getProjectId(), reference.getDatasetId(), routine)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqCreateRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span createRoutine = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      createRoutine =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.createRoutine")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "RoutineService")
+              .setAttribute("bq.rpc.method", "InsertRoutine")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Routine routineResponse = bqCreateRequest.execute();
+    if (createRoutine != null) {
+      createRoutine.setAttribute(
+          "bq.rpc.response.routine.id", routineResponse.getRoutineReference().getRoutineId());
+      createRoutine.end();
+    }
+    return routineResponse;
   }
 
   @Override
   public Job create(Job job, Map<Option, ?> options) {
     try {
-      validateRPC();
-      String projectId =
-          job.getJobReference() != null
-              ? job.getJobReference().getProjectId()
-              : this.options.getProjectId();
-      return bigquery
-          .jobs()
-          .insert(projectId, job)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return createSkipExceptionTranslation(job, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Job createSkipExceptionTranslation(Job job, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    String projectId =
+        job.getJobReference() != null
+            ? job.getJobReference().getProjectId()
+            : this.options.getProjectId();
+    Bigquery.Jobs.Insert bqCreateRequest =
+        bigquery
+            .jobs()
+            .insert(projectId, job)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqCreateRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span createJob = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      createJob =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.createJob")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "InsertJob")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Job jobResponse = bqCreateRequest.execute();
+    if (createJob != null) {
+      createJob.setAttribute("bq.rpc.response.job.id", jobResponse.getId());
+      createJob.setAttribute(
+          "bq.rpc.response.job.status.state", jobResponse.getStatus().getState());
+      createJob.end();
+    }
+    return jobResponse;
   }
 
   @Override
   public Job createJobForQuery(Job job) {
     try {
-      validateRPC();
-      String projectId =
-          job.getJobReference() != null
-              ? job.getJobReference().getProjectId()
-              : this.options.getProjectId();
-      return bigquery.jobs().insert(projectId, job).setPrettyPrint(false).execute();
+      return createJobForQuerySkipExceptionTranslation(job);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Job createJobForQuerySkipExceptionTranslation(Job job) throws IOException {
+    validateRPC();
+    String projectId =
+        job.getJobReference() != null
+            ? job.getJobReference().getProjectId()
+            : this.options.getProjectId();
+    Bigquery.Jobs.Insert bqCreateRequest =
+        bigquery.jobs().insert(projectId, job).setPrettyPrint(false);
+
+    bqCreateRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span createJob = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      createJob =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.createJobForQuery")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "InsertJob")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    Job jobResponse = bqCreateRequest.execute();
+    if (createJob != null) {
+      createJob.setAttribute("bq.rpc.response.job.id", jobResponse.getId());
+      createJob.setAttribute(
+          "bq.rpc.response.job.status.state", jobResponse.getStatus().getState());
+      createJob.end();
+    }
+    return jobResponse;
+  }
+
   @Override
   public boolean deleteDataset(String projectId, String datasetId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      bigquery
-          .datasets()
-          .delete(projectId, datasetId)
-          .setPrettyPrint(false)
-          .setDeleteContents(Option.DELETE_CONTENTS.getBoolean(options))
-          .execute();
-      return true;
+      return deleteDatasetSkipExceptionTranslation(projectId, datasetId, options);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -278,53 +503,150 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public boolean deleteDatasetSkipExceptionTranslation(
+      String projectId, String datasetId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Datasets.Delete bqDeleteRequest =
+        bigquery
+            .datasets()
+            .delete(projectId, datasetId)
+            .setPrettyPrint(false)
+            .setDeleteContents(Option.DELETE_CONTENTS.getBoolean(options));
+
+    bqDeleteRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span deleteDataset = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      deleteDataset =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.deleteDataset")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "DatasetService")
+              .setAttribute("bq.rpc.method", "DeleteDataset")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    bqDeleteRequest.execute();
+    if (deleteDataset != null) {
+      deleteDataset.end();
+    }
+    return true;
+  }
+
   @Override
   public Dataset patch(Dataset dataset, Map<Option, ?> options) {
     try {
-      validateRPC();
-      DatasetReference reference = dataset.getDatasetReference();
-      return bigquery
-          .datasets()
-          .patch(reference.getProjectId(), reference.getDatasetId(), dataset)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return patchSkipExceptionTranslation(dataset, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Dataset patchSkipExceptionTranslation(Dataset dataset, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    DatasetReference reference = dataset.getDatasetReference();
+    Bigquery.Datasets.Patch bqPatchRequest =
+        bigquery
+            .datasets()
+            .patch(reference.getProjectId(), reference.getDatasetId(), dataset)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+    if (options.containsKey(Option.ACCESS_POLICY_VERSION)) {
+      bqPatchRequest.setAccessPolicyVersion((Integer) options.get(Option.ACCESS_POLICY_VERSION));
+    }
+    if (options.containsKey(Option.DATASET_UPDATE_MODE)) {
+      bqPatchRequest.setUpdateMode(options.get(Option.DATASET_UPDATE_MODE).toString());
+    }
+    bqPatchRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span patchDataset = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      patchDataset =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.patchDataset")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "DatasetService")
+              .setAttribute("bq.rpc.method", "PatchDataset")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Dataset datasetResponse = bqPatchRequest.execute();
+    if (patchDataset != null) {
+      patchDataset.setAttribute("bq.rpc.response.dataset.id", datasetResponse.getId());
+      patchDataset.end();
+    }
+    return datasetResponse;
+  }
+
   @Override
   public Table patch(Table table, Map<Option, ?> options) {
     try {
-      validateRPC();
-      // unset the type, as it is output only
-      table.setType(null);
-      TableReference reference = table.getTableReference();
-      return bigquery
-          .tables()
-          .patch(reference.getProjectId(), reference.getDatasetId(), reference.getTableId(), table)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .setAutodetectSchema(BigQueryRpc.Option.AUTODETECT_SCHEMA.getBoolean(options))
-          .execute();
+      return patchSkipExceptionTranslation(table, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Table patchSkipExceptionTranslation(Table table, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    // unset the type, as it is output only
+    table.setType(null);
+    TableReference reference = table.getTableReference();
+    Bigquery.Tables.Patch bqPatchRequest =
+        bigquery
+            .tables()
+            .patch(
+                reference.getProjectId(), reference.getDatasetId(), reference.getTableId(), table)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options))
+            .setAutodetectSchema(BigQueryRpc.Option.AUTODETECT_SCHEMA.getBoolean(options));
+
+    bqPatchRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span patchTable = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      patchTable =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.patchTable")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "PatchTable")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Table tableResponse = bqPatchRequest.execute();
+    if (patchTable != null) {
+      patchTable.setAttribute("bq.rpc.response.table.id", tableResponse.getId());
+      patchTable.end();
+    }
+    return tableResponse;
   }
 
   @Override
   public Table getTable(
       String projectId, String datasetId, String tableId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .tables()
-          .get(projectId, datasetId, tableId)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .setView(getTableMetadataOption(options))
-          .execute();
+      return getTableSkipExceptionTranslation(projectId, datasetId, tableId, options);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -332,6 +654,45 @@ public class HttpBigQueryRpc implements BigQueryRpc {
       }
       throw serviceException;
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Table getTableSkipExceptionTranslation(
+      String projectId, String datasetId, String tableId, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    Bigquery.Tables.Get bqGetRequest =
+        bigquery
+            .tables()
+            .get(projectId, datasetId, tableId)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options))
+            .setView(getTableMetadataOption(options));
+
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getTable = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getTable =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getTable")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "GetTable")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Table tableResponse = bqGetRequest.execute();
+    if (getTable != null) {
+      getTable.setAttribute("bq.rpc.response.table.id", tableResponse.getId());
+      getTable.end();
+    }
+    return tableResponse;
   }
 
   private String getTableMetadataOption(Map<Option, ?> options) {
@@ -345,45 +706,76 @@ public class HttpBigQueryRpc implements BigQueryRpc {
   public Tuple<String, Iterable<Table>> listTables(
       String projectId, String datasetId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      TableList tableList =
-          bigquery
-              .tables()
-              .list(projectId, datasetId)
-              .setPrettyPrint(false)
-              .setMaxResults(Option.MAX_RESULTS.getLong(options))
-              .setPageToken(Option.PAGE_TOKEN.getString(options))
-              .execute();
-      Iterable<TableList.Tables> tables = tableList.getTables();
-      return Tuple.of(
-          tableList.getNextPageToken(),
-          Iterables.transform(
-              tables != null ? tables : ImmutableList.<TableList.Tables>of(),
-              new Function<TableList.Tables, Table>() {
-                @Override
-                public Table apply(TableList.Tables tablePb) {
-                  return new Table()
-                      .setFriendlyName(tablePb.getFriendlyName())
-                      .setId(tablePb.getId())
-                      .setKind(tablePb.getKind())
-                      .setTableReference(tablePb.getTableReference())
-                      .setType(tablePb.getType())
-                      .setCreationTime(tablePb.getCreationTime())
-                      .setTimePartitioning(tablePb.getTimePartitioning())
-                      .setRangePartitioning(tablePb.getRangePartitioning());
-                }
-              }));
+      return listTablesSkipExceptionTranslation(projectId, datasetId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Tuple<String, Iterable<Table>> listTablesSkipExceptionTranslation(
+      String projectId, String datasetId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Tables.List tableListRequest =
+        bigquery
+            .tables()
+            .list(projectId, datasetId)
+            .setPrettyPrint(false)
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options));
+
+    tableListRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listTables = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listTables =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listTables")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "ListTables")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", tableListRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    TableList tableResponse = tableListRequest.execute();
+    if (listTables != null) {
+      listTables.setAttribute("bq.rpc.next_page_token", tableResponse.getNextPageToken());
+      listTables.end();
+    }
+
+    Iterable<TableList.Tables> tables = tableResponse.getTables();
+    return Tuple.of(
+        tableResponse.getNextPageToken(),
+        Iterables.transform(
+            tables != null ? tables : ImmutableList.<TableList.Tables>of(),
+            new Function<TableList.Tables, Table>() {
+              @Override
+              public Table apply(TableList.Tables tablePb) {
+                return new Table()
+                    .setFriendlyName(tablePb.getFriendlyName())
+                    .setId(tablePb.getId())
+                    .setKind(tablePb.getKind())
+                    .setTableReference(tablePb.getTableReference())
+                    .setType(tablePb.getType())
+                    .setCreationTime(tablePb.getCreationTime())
+                    .setTimePartitioning(tablePb.getTimePartitioning())
+                    .setRangePartitioning(tablePb.getRangePartitioning())
+                    .setClustering(tablePb.getClustering())
+                    .setLabels(tablePb.getLabels());
+              }
+            }));
+  }
+
   @Override
   public boolean deleteTable(String projectId, String datasetId, String tableId) {
     try {
-      validateRPC();
-      bigquery.tables().delete(projectId, datasetId, tableId).execute();
-      return true;
+      return deleteTableSkipExceptionTranslation(projectId, datasetId, tableId);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -393,34 +785,92 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public boolean deleteTableSkipExceptionTranslation(
+      String projectId, String datasetId, String tableId) throws IOException {
+    validateRPC();
+    Bigquery.Tables.Delete bqDeleteRequest =
+        bigquery.tables().delete(projectId, datasetId, tableId);
+
+    bqDeleteRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span deleteTable = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      deleteTable =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.deleteTable")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "DeleteTable")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    bqDeleteRequest.execute();
+    if (deleteTable != null) {
+      deleteTable.end();
+    }
+    return true;
+  }
+
   @Override
   public Model patch(Model model, Map<Option, ?> options) {
     try {
-      validateRPC();
-      // unset the type, as it is output only
-      ModelReference reference = model.getModelReference();
-      return bigquery
-          .models()
-          .patch(reference.getProjectId(), reference.getDatasetId(), reference.getModelId(), model)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return patchSkipExceptionTranslation(model, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Model patchSkipExceptionTranslation(Model model, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    // unset the type, as it is output only
+    ModelReference reference = model.getModelReference();
+    Bigquery.Models.Patch bqPatchRequest =
+        bigquery
+            .models()
+            .patch(
+                reference.getProjectId(), reference.getDatasetId(), reference.getModelId(), model)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqPatchRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span patchModel = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      patchModel =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.patchModel")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "ModelService")
+              .setAttribute("bq.rpc.method", "PatchModel")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Model modelResponse = bqPatchRequest.execute();
+    if (patchModel != null) {
+      patchModel.setAttribute(
+          "bq.rpc.response.model.id", modelResponse.getModelReference().getModelId());
+      patchModel.end();
+    }
+    return modelResponse;
   }
 
   @Override
   public Model getModel(
       String projectId, String datasetId, String modelId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .models()
-          .get(projectId, datasetId, modelId)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return getModelSkipExceptionTranslation(projectId, datasetId, modelId, options);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -428,35 +878,103 @@ public class HttpBigQueryRpc implements BigQueryRpc {
       }
       throw serviceException;
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Model getModelSkipExceptionTranslation(
+      String projectId, String datasetId, String modelId, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    Bigquery.Models.Get bqGetRequest =
+        bigquery
+            .models()
+            .get(projectId, datasetId, modelId)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getModel = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getModel =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getModel")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "ModelService")
+              .setAttribute("bq.rpc.method", "GetModel")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Model modelResponse = bqGetRequest.execute();
+    if (getModel != null) {
+      getModel.setAttribute(
+          "bq.rpc.response.model.id", modelResponse.getModelReference().getModelId());
+      getModel.end();
+    }
+    return modelResponse;
   }
 
   @Override
   public Tuple<String, Iterable<Model>> listModels(
       String projectId, String datasetId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      ListModelsResponse modelList =
-          bigquery
-              .models()
-              .list(projectId, datasetId)
-              .setPrettyPrint(false)
-              .setMaxResults(Option.MAX_RESULTS.getLong(options))
-              .setPageToken(Option.PAGE_TOKEN.getString(options))
-              .execute();
-      Iterable<Model> models =
-          modelList.getModels() != null ? modelList.getModels() : ImmutableList.<Model>of();
-      return Tuple.of(modelList.getNextPageToken(), models);
+      return listModelsSkipExceptionTranslation(projectId, datasetId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Tuple<String, Iterable<Model>> listModelsSkipExceptionTranslation(
+      String projectId, String datasetId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Models.List modelListRequest =
+        bigquery
+            .models()
+            .list(projectId, datasetId)
+            .setPrettyPrint(false)
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options));
+
+    modelListRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listModels = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listModels =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listModels")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "ModelService")
+              .setAttribute("bq.rpc.method", "ListModels")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", modelListRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    ListModelsResponse modelResponse = modelListRequest.execute();
+    if (listModels != null) {
+      listModels.setAttribute("bq.rpc.next_page_token", modelResponse.getNextPageToken());
+      listModels.end();
+    }
+
+    Iterable<Model> models =
+        modelResponse.getModels() != null ? modelResponse.getModels() : ImmutableList.<Model>of();
+    return Tuple.of(modelResponse.getNextPageToken(), models);
+  }
+
   @Override
   public boolean deleteModel(String projectId, String datasetId, String modelId) {
     try {
-      validateRPC();
-      bigquery.models().delete(projectId, datasetId, modelId).execute();
-      return true;
+      return deleteModelSkipExceptionTranslation(projectId, datasetId, modelId);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -466,34 +984,94 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public boolean deleteModelSkipExceptionTranslation(
+      String projectId, String datasetId, String modelId) throws IOException {
+    validateRPC();
+    Bigquery.Models.Delete bqDeleteRequest =
+        bigquery.models().delete(projectId, datasetId, modelId);
+
+    bqDeleteRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span deleteModels = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      deleteModels =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.deleteModel")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "ModelService")
+              .setAttribute("bq.rpc.method", "DeleteModel")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    bqDeleteRequest.execute();
+    if (deleteModels != null) {
+      deleteModels.end();
+    }
+    return true;
+  }
+
   @Override
   public Routine update(Routine routine, Map<Option, ?> options) {
     try {
-      validateRPC();
-      RoutineReference reference = routine.getRoutineReference();
-      return bigquery
-          .routines()
-          .update(
-              reference.getProjectId(), reference.getDatasetId(), reference.getRoutineId(), routine)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return updateSkipExceptionTranslation(routine, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Routine updateSkipExceptionTranslation(Routine routine, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    RoutineReference reference = routine.getRoutineReference();
+    Bigquery.Routines.Update bqUpdateRequest =
+        bigquery
+            .routines()
+            .update(
+                reference.getProjectId(),
+                reference.getDatasetId(),
+                reference.getRoutineId(),
+                routine)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqUpdateRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span updateRoutine = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      updateRoutine =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.updateRoutine")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "RoutineService")
+              .setAttribute("bq.rpc.method", "UpdateRoutine")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Routine routineResponse = bqUpdateRequest.execute();
+    if (updateRoutine != null) {
+      updateRoutine.setAttribute(
+          "bq.rpc.response.routine.id", routineResponse.getRoutineReference().getRoutineId());
+      updateRoutine.end();
+    }
+    return routineResponse;
   }
 
   @Override
   public Routine getRoutine(
       String projectId, String datasetId, String routineId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .routines()
-          .get(projectId, datasetId, routineId)
-          .setPrettyPrint(false)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return getRoutineSkipExceptionTranslation(projectId, datasetId, routineId, options);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -503,35 +1081,102 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Routine getRoutineSkipExceptionTranslation(
+      String projectId, String datasetId, String routineId, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    Bigquery.Routines.Get bqGetRequest =
+        bigquery
+            .routines()
+            .get(projectId, datasetId, routineId)
+            .setPrettyPrint(false)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getRoutine = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getRoutine =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getRoutine")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "RoutineService")
+              .setAttribute("bq.rpc.method", "GetRoutine")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Routine routineResponse = bqGetRequest.execute();
+    if (getRoutine != null) {
+      getRoutine.setAttribute(
+          "bq.rpc.response.routine.id", routineResponse.getRoutineReference().getRoutineId());
+      getRoutine.end();
+    }
+    return routineResponse;
+  }
+
   @Override
   public Tuple<String, Iterable<Routine>> listRoutines(
       String projectId, String datasetId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      ListRoutinesResponse routineList =
-          bigquery
-              .routines()
-              .list(projectId, datasetId)
-              .setPrettyPrint(false)
-              .setMaxResults(Option.MAX_RESULTS.getLong(options))
-              .setPageToken(Option.PAGE_TOKEN.getString(options))
-              .execute();
-      Iterable<Routine> routines =
-          routineList.getRoutines() != null
-              ? routineList.getRoutines()
-              : ImmutableList.<Routine>of();
-      return Tuple.of(routineList.getNextPageToken(), routines);
+      return listRoutinesSkipExceptionTranslation(projectId, datasetId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Tuple<String, Iterable<Routine>> listRoutinesSkipExceptionTranslation(
+      String projectId, String datasetId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Routines.List routineListRequest =
+        bigquery
+            .routines()
+            .list(projectId, datasetId)
+            .setPrettyPrint(false)
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options));
+
+    routineListRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listRoutines = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listRoutines =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listRoutines")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "RoutineService")
+              .setAttribute("bq.rpc.method", "ListRoutines")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", routineListRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    ListRoutinesResponse routineResponse = routineListRequest.execute();
+    if (listRoutines != null) {
+      listRoutines.setAttribute("bq.rpc.next_page_token", routineResponse.getNextPageToken());
+      listRoutines.end();
+    }
+    Iterable<Routine> routines =
+        routineResponse.getRoutines() != null
+            ? routineResponse.getRoutines()
+            : ImmutableList.<Routine>of();
+    return Tuple.of(routineResponse.getNextPageToken(), routines);
+  }
+
   @Override
   public boolean deleteRoutine(String projectId, String datasetId, String routineId) {
     try {
-      validateRPC();
-      bigquery.routines().delete(projectId, datasetId, routineId).execute();
-      return true;
+      return deleteRoutineSkipExceptionTranslation(projectId, datasetId, routineId);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -541,40 +1186,133 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public boolean deleteRoutineSkipExceptionTranslation(
+      String projectId, String datasetId, String routineId) throws IOException {
+    validateRPC();
+    Bigquery.Routines.Delete bqDeleteRequest =
+        bigquery.routines().delete(projectId, datasetId, routineId);
+
+    bqDeleteRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span deleteRoutine = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      deleteRoutine =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listRoutines")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "RoutineService")
+              .setAttribute("bq.rpc.method", "ListRoutines")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    bqDeleteRequest.execute();
+    if (deleteRoutine != null) {
+      deleteRoutine.end();
+    }
+    return true;
+  }
+
   @Override
   public TableDataInsertAllResponse insertAll(
       String projectId, String datasetId, String tableId, TableDataInsertAllRequest request) {
     try {
-      validateRPC();
-      return bigquery
-          .tabledata()
-          .insertAll(projectId, datasetId, tableId, request)
-          .setPrettyPrint(false)
-          .execute();
+      return insertAllSkipExceptionTranslation(projectId, datasetId, tableId, request);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public TableDataInsertAllResponse insertAllSkipExceptionTranslation(
+      String projectId, String datasetId, String tableId, TableDataInsertAllRequest request)
+      throws IOException {
+    validateRPC();
+    Bigquery.Tabledata.InsertAll insertAllRequest =
+        bigquery
+            .tabledata()
+            .insertAll(projectId, datasetId, tableId, request)
+            .setPrettyPrint(false);
+
+    insertAllRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span insertAll = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      insertAll =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.insertAll")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableDataService")
+              .setAttribute("bq.rpc.method", "InsertAll")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    TableDataInsertAllResponse insertAllResponse = insertAllRequest.execute();
+    if (insertAll != null) {
+      insertAll.end();
+    }
+    return insertAllResponse;
   }
 
   @Override
   public TableDataList listTableData(
       String projectId, String datasetId, String tableId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .tabledata()
-          .list(projectId, datasetId, tableId)
-          .setPrettyPrint(false)
-          .setMaxResults(Option.MAX_RESULTS.getLong(options))
-          .setPageToken(Option.PAGE_TOKEN.getString(options))
-          .setStartIndex(
-              Option.START_INDEX.getLong(options) != null
-                  ? BigInteger.valueOf(Option.START_INDEX.getLong(options))
-                  : null)
-          .execute();
+      return listTableDataSkipExceptionTranslation(projectId, datasetId, tableId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public TableDataList listTableDataSkipExceptionTranslation(
+      String projectId, String datasetId, String tableId, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    Bigquery.Tabledata.List bqListRequest =
+        bigquery
+            .tabledata()
+            .list(projectId, datasetId, tableId)
+            .setPrettyPrint(false)
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options))
+            .setStartIndex(
+                Option.START_INDEX.getLong(options) != null
+                    ? BigInteger.valueOf(Option.START_INDEX.getLong(options))
+                    : null);
+
+    bqListRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listTableData = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listTableData =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listTableData")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableDataService")
+              .setAttribute("bq.rpc.method", "List")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", bqListRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    TableDataList bqListResponse = bqListRequest.execute();
+    if (listTableData != null) {
+      listTableData.end();
+    }
+    return bqListResponse;
   }
 
   @Override
@@ -585,30 +1323,59 @@ public class HttpBigQueryRpc implements BigQueryRpc {
       Integer maxResultPerPage,
       String pageToken) {
     try {
-      validateRPC();
-      return bigquery
-          .tabledata()
-          .list(projectId, datasetId, tableId)
-          .setPrettyPrint(false)
-          .setMaxResults(Long.valueOf(maxResultPerPage))
-          .setPageToken(pageToken)
-          .execute();
+      return listTableDataWithRowLimitSkipExceptionTranslation(
+          projectId, datasetId, tableId, maxResultPerPage, pageToken);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public TableDataList listTableDataWithRowLimitSkipExceptionTranslation(
+      String projectId,
+      String datasetId,
+      String tableId,
+      Integer maxResultPerPage,
+      String pageToken)
+      throws IOException {
+    validateRPC();
+    Bigquery.Tabledata.List bqListRequest =
+        bigquery
+            .tabledata()
+            .list(projectId, datasetId, tableId)
+            .setPrettyPrint(false)
+            .setMaxResults(Long.valueOf(maxResultPerPage))
+            .setPageToken(pageToken);
+
+    bqListRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listTableData = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listTableData =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listTableDataWithRowLimit")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableDataService")
+              .setAttribute("bq.rpc.method", "List")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", bqListRequest.getPageToken())
+              .startSpan();
+    }
+    TableDataList bqListResponse = bqListRequest.execute();
+    if (listTableData != null) {
+      listTableData.end();
+    }
+    return bqListResponse;
   }
 
   @Override
   public Job getJob(String projectId, String jobId, String location, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .jobs()
-          .get(projectId, jobId)
-          .setPrettyPrint(false)
-          .setLocation(location)
-          .setFields(Option.FIELDS.getString(options))
-          .execute();
+      return getJobSkipExceptionTranslation(projectId, jobId, location, options);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -616,18 +1383,51 @@ public class HttpBigQueryRpc implements BigQueryRpc {
       }
       throw serviceException;
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Job getJobSkipExceptionTranslation(
+      String projectId, String jobId, String location, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Jobs.Get bqGetRequest =
+        bigquery
+            .jobs()
+            .get(projectId, jobId)
+            .setPrettyPrint(false)
+            .setLocation(location)
+            .setFields(Option.FIELDS.getString(options));
+
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getJob = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getJob =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getJob")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "GetJob")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    Job jobResponse = bqGetRequest.execute();
+    if (getJob != null) {
+      getJob.setAttribute("bq.rpc.response.job.id", jobResponse.getId());
+      getJob.setAttribute("bq.rpc.response.job.status.state", jobResponse.getStatus().getState());
+      getJob.end();
+    }
+    return jobResponse;
   }
 
   @Override
   public Job getQueryJob(String projectId, String jobId, String location) {
     try {
-      validateRPC();
-      return bigquery
-          .jobs()
-          .get(projectId, jobId)
-          .setPrettyPrint(false)
-          .setLocation(location)
-          .execute();
+      return getQueryJobSkipExceptionTranslation(projectId, jobId, location);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -637,72 +1437,129 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Job getQueryJobSkipExceptionTranslation(String projectId, String jobId, String location)
+      throws IOException {
+    validateRPC();
+    Bigquery.Jobs.Get bqGetRequest =
+        bigquery.jobs().get(projectId, jobId).setPrettyPrint(false).setLocation(location);
+
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getJob = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getJob =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getQueryJob")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "GetJob")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    Job jobResponse = bqGetRequest.execute();
+    if (getJob != null) {
+      getJob.setAttribute("bq.rpc.response.job.id", jobResponse.getId());
+      getJob.setAttribute("bq.rpc.response.job.status.state", jobResponse.getStatus().getState());
+      getJob.end();
+    }
+    return jobResponse;
+  }
+
   @Override
   public Tuple<String, Iterable<Job>> listJobs(String projectId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      Bigquery.Jobs.List request =
-          bigquery
-              .jobs()
-              .list(projectId)
-              .setPrettyPrint(false)
-              .setAllUsers(Option.ALL_USERS.getBoolean(options))
-              .setFields(Option.FIELDS.getString(options))
-              .setStateFilter(Option.STATE_FILTER.<List<String>>get(options))
-              .setMaxResults(Option.MAX_RESULTS.getLong(options))
-              .setPageToken(Option.PAGE_TOKEN.getString(options))
-              .setProjection(DEFAULT_PROJECTION)
-              .setParentJobId(Option.PARENT_JOB_ID.getString(options));
-      if (Option.MIN_CREATION_TIME.getLong(options) != null) {
-        request.setMinCreationTime(BigInteger.valueOf(Option.MIN_CREATION_TIME.getLong(options)));
-      }
-      if (Option.MAX_CREATION_TIME.getLong(options) != null) {
-        request.setMaxCreationTime(BigInteger.valueOf(Option.MAX_CREATION_TIME.getLong(options)));
-      }
-      JobList jobsList = request.execute();
-
-      Iterable<JobList.Jobs> jobs = jobsList.getJobs();
-      return Tuple.of(
-          jobsList.getNextPageToken(),
-          Iterables.transform(
-              jobs != null ? jobs : ImmutableList.<JobList.Jobs>of(),
-              new Function<JobList.Jobs, Job>() {
-                @Override
-                public Job apply(JobList.Jobs jobPb) {
-                  JobStatus statusPb =
-                      jobPb.getStatus() != null ? jobPb.getStatus() : new JobStatus();
-                  if (statusPb.getState() == null) {
-                    statusPb.setState(jobPb.getState());
-                  }
-                  if (statusPb.getErrorResult() == null) {
-                    statusPb.setErrorResult(jobPb.getErrorResult());
-                  }
-                  return new Job()
-                      .setConfiguration(jobPb.getConfiguration())
-                      .setId(jobPb.getId())
-                      .setJobReference(jobPb.getJobReference())
-                      .setKind(jobPb.getKind())
-                      .setStatistics(jobPb.getStatistics())
-                      .setStatus(statusPb)
-                      .setUserEmail(jobPb.getUserEmail());
-                }
-              }));
+      return listJobsSkipExceptionTranslation(projectId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Tuple<String, Iterable<Job>> listJobsSkipExceptionTranslation(
+      String projectId, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Jobs.List listJobsRequest =
+        bigquery
+            .jobs()
+            .list(projectId)
+            .setPrettyPrint(false)
+            .setAllUsers(Option.ALL_USERS.getBoolean(options))
+            .setFields(Option.FIELDS.getString(options))
+            .setStateFilter(Option.STATE_FILTER.<List<String>>get(options))
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options))
+            .setProjection(DEFAULT_PROJECTION)
+            .setParentJobId(Option.PARENT_JOB_ID.getString(options));
+    if (Option.MIN_CREATION_TIME.getLong(options) != null) {
+      listJobsRequest.setMinCreationTime(
+          BigInteger.valueOf(Option.MIN_CREATION_TIME.getLong(options)));
+    }
+    if (Option.MAX_CREATION_TIME.getLong(options) != null) {
+      listJobsRequest.setMaxCreationTime(
+          BigInteger.valueOf(Option.MAX_CREATION_TIME.getLong(options)));
+    }
+    listJobsRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span listJobs = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      listJobs =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.listJobs")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "ListJobs")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", listJobsRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+    JobList jobsList = listJobsRequest.execute();
+    if (listJobs != null) {
+      listJobs.setAttribute("bq.rpc.next_page_token", jobsList.getNextPageToken());
+      listJobs.end();
+    }
+
+    Iterable<JobList.Jobs> jobs = jobsList.getJobs();
+    return Tuple.of(
+        jobsList.getNextPageToken(),
+        Iterables.transform(
+            jobs != null ? jobs : ImmutableList.<JobList.Jobs>of(),
+            new Function<JobList.Jobs, Job>() {
+              @Override
+              public Job apply(JobList.Jobs jobPb) {
+                JobStatus statusPb =
+                    jobPb.getStatus() != null ? jobPb.getStatus() : new JobStatus();
+                if (statusPb.getState() == null) {
+                  statusPb.setState(jobPb.getState());
+                }
+                if (statusPb.getErrorResult() == null) {
+                  statusPb.setErrorResult(jobPb.getErrorResult());
+                }
+                return new Job()
+                    .setConfiguration(jobPb.getConfiguration())
+                    .setId(jobPb.getId())
+                    .setJobReference(jobPb.getJobReference())
+                    .setKind(jobPb.getKind())
+                    .setStatistics(jobPb.getStatistics())
+                    .setStatus(statusPb)
+                    .setUserEmail(jobPb.getUserEmail());
+              }
+            }));
+  }
+
   @Override
   public boolean cancel(String projectId, String jobId, String location) {
     try {
-      validateRPC();
-      bigquery
-          .jobs()
-          .cancel(projectId, jobId)
-          .setLocation(location)
-          .setPrettyPrint(false)
-          .execute();
-      return true;
+      return cancelSkipExceptionTranslation(projectId, jobId, location);
     } catch (IOException ex) {
       BigQueryException serviceException = translate(ex);
       if (serviceException.getCode() == HTTP_NOT_FOUND) {
@@ -712,93 +1569,247 @@ public class HttpBigQueryRpc implements BigQueryRpc {
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public boolean cancelSkipExceptionTranslation(String projectId, String jobId, String location)
+      throws IOException {
+    validateRPC();
+    Bigquery.Jobs.Cancel bqCancelRequest =
+        bigquery.jobs().cancel(projectId, jobId).setLocation(location).setPrettyPrint(false);
+
+    bqCancelRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span cancelJob = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      cancelJob =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.cancelJob")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "CancelJob")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    bqCancelRequest.execute();
+    if (cancelJob != null) {
+      cancelJob.end();
+    }
+    return true;
+  }
+
   @Override
   public boolean deleteJob(String projectId, String jobName, String location) {
     try {
-      validateRPC();
-      bigquery
-          .jobs()
-          .delete(projectId, jobName)
-          .setLocation(location)
-          .setPrettyPrint(false)
-          .execute();
-      return true;
+      return deleteJobSkipExceptionTranslation(projectId, jobName, location);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public boolean deleteJobSkipExceptionTranslation(
+      String projectId, String jobName, String location) throws IOException {
+    validateRPC();
+    Bigquery.Jobs.Delete bqDeleteRequest =
+        bigquery.jobs().delete(projectId, jobName).setLocation(location).setPrettyPrint(false);
+
+    bqDeleteRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span deleteJob = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      deleteJob =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.deleteJob")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "DeleteJob")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+    bqDeleteRequest.execute();
+    if (deleteJob != null) {
+      deleteJob.end();
+    }
+    return true;
   }
 
   @Override
   public GetQueryResultsResponse getQueryResults(
       String projectId, String jobId, String location, Map<Option, ?> options) {
     try {
-      validateRPC();
-      return bigquery
-          .jobs()
-          .getQueryResults(projectId, jobId)
-          .setPrettyPrint(false)
-          .setLocation(location)
-          .setMaxResults(Option.MAX_RESULTS.getLong(options))
-          .setPageToken(Option.PAGE_TOKEN.getString(options))
-          .setStartIndex(
-              Option.START_INDEX.getLong(options) != null
-                  ? BigInteger.valueOf(Option.START_INDEX.getLong(options))
-                  : null)
-          .setTimeoutMs(Option.TIMEOUT.getLong(options))
-          .execute();
+      return getQueryResultsSkipExceptionTranslation(projectId, jobId, location, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public GetQueryResultsResponse getQueryResultsSkipExceptionTranslation(
+      String projectId, String jobId, String location, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    Bigquery.Jobs.GetQueryResults queryRequest =
+        bigquery
+            .jobs()
+            .getQueryResults(projectId, jobId)
+            .setPrettyPrint(false)
+            .setLocation(location)
+            .setMaxResults(Option.MAX_RESULTS.getLong(options))
+            .setPageToken(Option.PAGE_TOKEN.getString(options))
+            .setStartIndex(
+                Option.START_INDEX.getLong(options) != null
+                    ? BigInteger.valueOf(Option.START_INDEX.getLong(options))
+                    : null)
+            .setTimeoutMs(Option.TIMEOUT.getLong(options));
+
+    queryRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getQueryResults = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getQueryResults =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getQueryResults")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "GetQueryResults")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", queryRequest.getPageToken())
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+
+    GetQueryResultsResponse queryResponse = queryRequest.execute();
+    if (getQueryResults != null) {
+      getQueryResults.end();
+    }
+    return queryResponse;
   }
 
   @Override
   public GetQueryResultsResponse getQueryResultsWithRowLimit(
       String projectId, String jobId, String location, Integer maxResultPerPage, Long timeoutMs) {
     try {
-      validateRPC();
-      return bigquery
-          .jobs()
-          .getQueryResults(projectId, jobId)
-          .setPrettyPrint(false)
-          .setLocation(location)
-          .setMaxResults(Long.valueOf(maxResultPerPage))
-          .setTimeoutMs(timeoutMs)
-          .execute();
+      return getQueryResultsWithRowLimitSkipExceptionTranslation(
+          projectId, jobId, location, maxResultPerPage, timeoutMs);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public GetQueryResultsResponse getQueryResultsWithRowLimitSkipExceptionTranslation(
+      String projectId, String jobId, String location, Integer maxResultPerPage, Long timeoutMs)
+      throws IOException {
+    validateRPC();
+    Bigquery.Jobs.GetQueryResults queryRequest =
+        bigquery
+            .jobs()
+            .getQueryResults(projectId, jobId)
+            .setPrettyPrint(false)
+            .setLocation(location)
+            .setMaxResults(Long.valueOf(maxResultPerPage))
+            .setTimeoutMs(timeoutMs);
+
+    queryRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getQueryResults = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getQueryResults =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getQueryResultsWithRowLimit")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "GetQueryResults")
+              .setAttribute("bq.rpc.system", "http")
+              .setAttribute("bq.rpc.page_token", queryRequest.getPageToken())
+              .startSpan();
+    }
+
+    GetQueryResultsResponse queryResponse = queryRequest.execute();
+    if (getQueryResults != null) {
+      getQueryResults.end();
+    }
+    return queryResponse;
   }
 
   @Override
   public QueryResponse queryRpc(String projectId, QueryRequest content) {
     try {
-      validateRPC();
-      return bigquery.jobs().query(projectId, content).execute();
+      return queryRpcSkipExceptionTranslation(projectId, content);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public QueryResponse queryRpcSkipExceptionTranslation(String projectId, QueryRequest content)
+      throws IOException {
+    validateRPC();
+    Bigquery.Jobs.Query queryRequest = bigquery.jobs().query(projectId, content);
+    queryRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getQueryResults = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getQueryResults =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.queryRpc")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "JobService")
+              .setAttribute("bq.rpc.method", "Query")
+              .setAttribute("bq.rpc.system", "http")
+              .startSpan();
+    }
+
+    QueryResponse queryResponse = queryRequest.execute();
+    if (getQueryResults != null) {
+      getQueryResults.end();
+    }
+    return queryResponse;
+  }
+
   @Override
   public String open(Job loadJob) {
     try {
-      String builder = options.getResolvedApiaryHost("bigquery");
-      if (!builder.endsWith("/")) {
-        builder += "/";
-      }
-      builder += BASE_RESUMABLE_URI + options.getProjectId() + "/jobs";
-      GenericUrl url = new GenericUrl(builder);
-      url.set("uploadType", "resumable");
-      JsonFactory jsonFactory = bigquery.getJsonFactory();
-      HttpRequestFactory requestFactory = bigquery.getRequestFactory();
-      HttpRequest httpRequest =
-          requestFactory.buildPostRequest(url, new JsonHttpContent(jsonFactory, loadJob));
-      httpRequest.getHeaders().set("X-Upload-Content-Value", "application/octet-stream");
-      HttpResponse response = httpRequest.execute();
-      return response.getHeaders().getLocation();
+      return openSkipExceptionTranslation(loadJob);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public String openSkipExceptionTranslation(Job loadJob) throws IOException {
+    String builder = options.getResolvedApiaryHost("bigquery");
+    if (!builder.endsWith("/")) {
+      builder += "/";
+    }
+    builder += BASE_RESUMABLE_URI + options.getProjectId() + "/jobs";
+    GenericUrl url = new GenericUrl(builder);
+    url.set("uploadType", "resumable");
+    JsonFactory jsonFactory = bigquery.getJsonFactory();
+    HttpRequestFactory requestFactory = bigquery.getRequestFactory();
+    HttpRequest httpRequest =
+        requestFactory.buildPostRequest(url, new JsonHttpContent(jsonFactory, loadJob));
+    httpRequest.getHeaders().set("X-Upload-Content-Value", "application/octet-stream");
+    HttpResponse response = httpRequest.execute();
+    return response.getHeaders().getLocation();
   }
 
   @Override
@@ -810,101 +1821,200 @@ public class HttpBigQueryRpc implements BigQueryRpc {
       int length,
       boolean last) {
     try {
-      if (length == 0) {
-        return null;
-      }
-      GenericUrl url = new GenericUrl(uploadId);
-      HttpRequest httpRequest =
-          bigquery
-              .getRequestFactory()
-              .buildPutRequest(url, new ByteArrayContent(null, toWrite, toWriteOffset, length));
-      httpRequest.setParser(bigquery.getObjectParser());
-      long limit = destOffset + length;
-      StringBuilder range = new StringBuilder("bytes ");
-      range.append(destOffset).append('-').append(limit - 1).append('/');
-      if (last) {
-        range.append(limit);
-      } else {
-        range.append('*');
-      }
-      httpRequest.getHeaders().setContentRange(range.toString());
-      int code;
-      String message;
-      IOException exception = null;
-      HttpResponse response = null;
-      try {
-        response = httpRequest.execute();
-        code = response.getStatusCode();
-        message = response.getStatusMessage();
-      } catch (HttpResponseException ex) {
-        exception = ex;
-        code = ex.getStatusCode();
-        message = ex.getStatusMessage();
-      }
-      if (!last && code != HTTP_RESUME_INCOMPLETE
-          || last && !(code == HTTP_OK || code == HTTP_CREATED)) {
-        if (exception != null) {
-          throw exception;
-        }
-        throw new BigQueryException(code, message);
-      }
-      return last && response != null ? response.parseAs(Job.class) : null;
+      return writeSkipExceptionTranslation(
+          uploadId, toWrite, toWriteOffset, destOffset, length, last);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Job writeSkipExceptionTranslation(
+      String uploadId, byte[] toWrite, int toWriteOffset, long destOffset, int length, boolean last)
+      throws IOException {
+    if (length == 0) {
+      return null;
+    }
+    GenericUrl url = new GenericUrl(uploadId);
+    HttpRequest httpRequest =
+        bigquery
+            .getRequestFactory()
+            .buildPutRequest(url, new ByteArrayContent(null, toWrite, toWriteOffset, length));
+    httpRequest.setParser(bigquery.getObjectParser());
+    long limit = destOffset + length;
+    StringBuilder range = new StringBuilder("bytes ");
+    range.append(destOffset).append('-').append(limit - 1).append('/');
+    if (last) {
+      range.append(limit);
+    } else {
+      range.append('*');
+    }
+    httpRequest.getHeaders().setContentRange(range.toString());
+    int code;
+    String message;
+    IOException exception = null;
+    HttpResponse response = null;
+    try {
+      response = httpRequest.execute();
+      code = response.getStatusCode();
+      message = response.getStatusMessage();
+    } catch (HttpResponseException ex) {
+      exception = ex;
+      code = ex.getStatusCode();
+      message = ex.getStatusMessage();
+    }
+    if (!last && code != HTTP_RESUME_INCOMPLETE
+        || last && !(code == HTTP_OK || code == HTTP_CREATED)) {
+      if (exception != null) {
+        throw exception;
+      }
+      throw new BigQueryException(code, message);
+    }
+    return last && response != null ? response.parseAs(Job.class) : null;
   }
 
   @Override
   public Policy getIamPolicy(String resourceId, Map<Option, ?> options) {
     try {
-      validateRPC();
-      GetIamPolicyRequest policyRequest = new GetIamPolicyRequest();
-      if (null != Option.REQUESTED_POLICY_VERSION.getLong(options)) {
-        policyRequest =
-            policyRequest.setOptions(
-                new GetPolicyOptions()
-                    .setRequestedPolicyVersion(
-                        Option.REQUESTED_POLICY_VERSION.getLong(options).intValue()));
-      }
-      return bigquery
-          .tables()
-          .getIamPolicy(resourceId, policyRequest)
-          .setPrettyPrint(false)
-          .execute();
+      return getIamPolicySkipExceptionTranslation(resourceId, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
   }
 
+  @InternalApi("internal to java-bigquery")
+  public Policy getIamPolicySkipExceptionTranslation(String resourceId, Map<Option, ?> options)
+      throws IOException {
+    validateRPC();
+    GetIamPolicyRequest policyRequest = new GetIamPolicyRequest();
+    if (null != Option.REQUESTED_POLICY_VERSION.getLong(options)) {
+      policyRequest =
+          policyRequest.setOptions(
+              new GetPolicyOptions()
+                  .setRequestedPolicyVersion(
+                      Option.REQUESTED_POLICY_VERSION.getLong(options).intValue()));
+    }
+    Bigquery.Tables.GetIamPolicy bqGetRequest =
+        bigquery.tables().getIamPolicy(resourceId, policyRequest).setPrettyPrint(false);
+
+    bqGetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span getIamPolicy = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      getIamPolicy =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.getIamPolicy")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "GetIamPolicy")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+
+    Policy bqGetResponse = bqGetRequest.execute();
+    if (getIamPolicy != null) {
+      getIamPolicy.end();
+    }
+    return bqGetResponse;
+  }
+
   @Override
   public Policy setIamPolicy(String resourceId, Policy policy, Map<Option, ?> options) {
     try {
-      validateRPC();
-      SetIamPolicyRequest policyRequest = new SetIamPolicyRequest().setPolicy(policy);
-      return bigquery
-          .tables()
-          .setIamPolicy(resourceId, policyRequest)
-          .setPrettyPrint(false)
-          .execute();
+      return setIamPolicySkipExceptionTranslation(resourceId, policy, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  @InternalApi("internal to java-bigquery")
+  public Policy setIamPolicySkipExceptionTranslation(
+      String resourceId, Policy policy, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    SetIamPolicyRequest policyRequest = new SetIamPolicyRequest().setPolicy(policy);
+    Bigquery.Tables.SetIamPolicy bqSetRequest =
+        bigquery.tables().setIamPolicy(resourceId, policyRequest).setPrettyPrint(false);
+
+    bqSetRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span setIamPolicy = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      setIamPolicy =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.setIamPolicy")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "SetIamPolicy")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+
+    Policy bqSetResponse = bqSetRequest.execute();
+    if (setIamPolicy != null) {
+      setIamPolicy.end();
+    }
+    return bqSetResponse;
   }
 
   @Override
   public TestIamPermissionsResponse testIamPermissions(
       String resourceId, List<String> permissions, Map<Option, ?> options) {
     try {
-      validateRPC();
-      TestIamPermissionsRequest permissionsRequest =
-          new TestIamPermissionsRequest().setPermissions(permissions);
-      return bigquery
-          .tables()
-          .testIamPermissions(resourceId, permissionsRequest)
-          .setPrettyPrint(false)
-          .execute();
+      return testIamPermissionsSkipExceptionTranslation(resourceId, permissions, options);
     } catch (IOException ex) {
       throw translate(ex);
     }
+  }
+
+  public TestIamPermissionsResponse testIamPermissionsSkipExceptionTranslation(
+      String resourceId, List<String> permissions, Map<Option, ?> options) throws IOException {
+    validateRPC();
+    TestIamPermissionsRequest permissionsRequest =
+        new TestIamPermissionsRequest().setPermissions(permissions);
+    Bigquery.Tables.TestIamPermissions bqTestRequest =
+        bigquery.tables().testIamPermissions(resourceId, permissionsRequest).setPrettyPrint(false);
+
+    bqTestRequest
+        .getRequestHeaders()
+        .set("x-goog-otel-enabled", this.options.isOpenTelemetryTracingEnabled());
+
+    Span testIamPermissions = null;
+    if (this.options.isOpenTelemetryTracingEnabled()
+        && this.options.getOpenTelemetryTracer() != null) {
+      testIamPermissions =
+          this.options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRpc.setIamPolicy")
+              .setSpanKind(SpanKind.CLIENT)
+              .setAttribute("bq.rpc.service", "TableService")
+              .setAttribute("bq.rpc.method", "SetIamPolicy")
+              .setAttribute("bq.rpc.system", "http")
+              .setAllAttributes(otelAttributesFromOptions(options))
+              .startSpan();
+    }
+
+    TestIamPermissionsResponse bqTestResponse = bqTestRequest.execute();
+    if (testIamPermissions != null) {
+      testIamPermissions.end();
+    }
+    return bqTestResponse;
+  }
+
+  private static Attributes otelAttributesFromOptions(Map<Option, ?> options) {
+    Attributes attributes = Attributes.builder().build();
+    for (Map.Entry<Option, ?> entry : options.entrySet()) {
+      attributes.toBuilder().put(entry.getKey().toString(), entry.getValue().toString());
+    }
+    return attributes;
   }
 }

@@ -23,6 +23,7 @@ import com.google.cloud.bigquery.JobStatistics.CopyStatistics;
 import com.google.cloud.bigquery.JobStatistics.ExtractStatistics;
 import com.google.cloud.bigquery.JobStatistics.LoadStatistics;
 import com.google.cloud.bigquery.JobStatistics.QueryStatistics;
+import com.google.cloud.bigquery.JobStatistics.QueryStatistics.ExportDataStats;
 import com.google.cloud.bigquery.JobStatistics.ReservationUsage;
 import com.google.cloud.bigquery.JobStatistics.ScriptStatistics;
 import com.google.cloud.bigquery.JobStatistics.ScriptStatistics.ScriptStackFrame;
@@ -64,6 +65,13 @@ public class JobStatisticsTest {
           .setInsertedRowCount(INSERTED_ROW_COUNT)
           .setUpdatedRowCount(UPDATED_ROW_COUNT)
           .build();
+  private static final Long EXPORT_DATA_STATS_ROW_COUNT = 3L;
+  private static final Long EXPORT_DATA_STATS_FILE_COUNT = 2L;
+  private static final ExportDataStats EXPORT_DATA_STATS =
+      ExportDataStats.newBuilder()
+          .setRowCount(EXPORT_DATA_STATS_ROW_COUNT)
+          .setFileCount(EXPORT_DATA_STATS_FILE_COUNT)
+          .build();
   private static final QueryStatistics.StatementType STATEMENT_TYPE =
       QueryStatistics.StatementType.SELECT;
   private static final Long TOTAL_BYTES_BILLED = 24L;
@@ -94,6 +102,7 @@ public class JobStatisticsTest {
           .setStartTime(START_TIME)
           .setCopiedRows(COPIED_ROW)
           .setCopiedLogicalBytes(COPIED_LOGICAL_BYTES)
+          .setTotalSlotMs(TOTAL_SLOT_MS)
           .build();
   private static final ExtractStatistics EXTRACT_STATISTICS =
       ExtractStatistics.newBuilder()
@@ -102,6 +111,7 @@ public class JobStatisticsTest {
           .setStartTime(START_TIME)
           .setDestinationUriFileCounts(FILE_COUNT)
           .setInputBytes(INPUT_BYTES)
+          .setTotalSlotMs(TOTAL_SLOT_MS)
           .build();
   private static final LoadStatistics LOAD_STATISTICS =
       LoadStatistics.newBuilder()
@@ -113,6 +123,7 @@ public class JobStatisticsTest {
           .setOutputBytes(OUTPUT_BYTES)
           .setOutputRows(OUTPUT_ROWS)
           .setBadRecords(BAD_RECORDS)
+          .setTotalSlotMs(TOTAL_SLOT_MS)
           .build();
   private static final LoadStatistics LOAD_STATISTICS_INCOMPLETE =
       LoadStatistics.newBuilder()
@@ -122,6 +133,7 @@ public class JobStatisticsTest {
           .setInputBytes(INPUT_BYTES)
           .setInputFiles(INPUT_FILES)
           .setBadRecords(BAD_RECORDS)
+          .setTotalSlotMs(TOTAL_SLOT_MS)
           .build();
   private static final List<String> SUBSTEPS1 = ImmutableList.of("substep1", "substep2");
   private static final List<String> SUBSTEPS2 = ImmutableList.of("substep3", "substep4");
@@ -189,6 +201,7 @@ public class JobStatisticsTest {
           .setEstimatedBytesProcessed(ESTIMATE_BYTES_PROCESSED)
           .setNumDmlAffectedRows(NUM_DML_AFFECTED_ROWS)
           .setDmlStats(DML_STATS)
+          .setExportDataStats(EXPORT_DATA_STATS)
           .setReferenceTables(REFERENCED_TABLES)
           .setStatementType(STATEMENT_TYPE)
           .setTotalBytesBilled(TOTAL_BYTES_BILLED)
@@ -263,18 +276,21 @@ public class JobStatisticsTest {
     assertEquals(CREATION_TIME, EXTRACT_STATISTICS.getCreationTime());
     assertEquals(START_TIME, EXTRACT_STATISTICS.getStartTime());
     assertEquals(END_TIME, EXTRACT_STATISTICS.getEndTime());
+    assertEquals(TOTAL_SLOT_MS, EXTRACT_STATISTICS.getTotalSlotMs());
     assertEquals(FILE_COUNT, EXTRACT_STATISTICS.getDestinationUriFileCounts());
     assertEquals(INPUT_BYTES, EXTRACT_STATISTICS.getInputBytes());
 
     assertEquals(CREATION_TIME, COPY_STATISTICS.getCreationTime());
     assertEquals(START_TIME, COPY_STATISTICS.getStartTime());
     assertEquals(END_TIME, COPY_STATISTICS.getEndTime());
+    assertEquals(TOTAL_SLOT_MS, COPY_STATISTICS.getTotalSlotMs());
     assertEquals(COPIED_LOGICAL_BYTES, COPY_STATISTICS.getCopiedLogicalBytes());
     assertEquals(COPIED_ROW, COPY_STATISTICS.getCopiedRows());
 
     assertEquals(CREATION_TIME, LOAD_STATISTICS.getCreationTime());
     assertEquals(START_TIME, LOAD_STATISTICS.getStartTime());
     assertEquals(END_TIME, LOAD_STATISTICS.getEndTime());
+    assertEquals(TOTAL_SLOT_MS, LOAD_STATISTICS.getTotalSlotMs());
     assertEquals(INPUT_BYTES, LOAD_STATISTICS.getInputBytes());
     assertEquals(INPUT_FILES, LOAD_STATISTICS.getInputFiles());
     assertEquals(OUTPUT_BYTES, LOAD_STATISTICS.getOutputBytes());
@@ -284,6 +300,7 @@ public class JobStatisticsTest {
     assertEquals(CREATION_TIME, QUERY_STATISTICS.getCreationTime());
     assertEquals(START_TIME, QUERY_STATISTICS.getStartTime());
     assertEquals(END_TIME, QUERY_STATISTICS.getEndTime());
+    assertEquals(TOTAL_SLOT_MS, QUERY_STATISTICS.getTotalSlotMs());
     assertEquals(BI_ENGINE_STATS, QUERY_STATISTICS.getBiEngineStats());
     assertEquals(BILLING_TIER, QUERY_STATISTICS.getBillingTier());
     assertEquals(CACHE_HIT, QUERY_STATISTICS.getCacheHit());
@@ -293,12 +310,12 @@ public class JobStatisticsTest {
     assertEquals(ESTIMATE_BYTES_PROCESSED, QUERY_STATISTICS.getEstimatedBytesProcessed());
     assertEquals(NUM_DML_AFFECTED_ROWS, QUERY_STATISTICS.getNumDmlAffectedRows());
     assertEquals(DML_STATS, QUERY_STATISTICS.getDmlStats());
+    assertEquals(EXPORT_DATA_STATS, QUERY_STATISTICS.getExportDataStats());
     assertEquals(REFERENCED_TABLES, QUERY_STATISTICS.getReferencedTables());
     assertEquals(STATEMENT_TYPE, QUERY_STATISTICS.getStatementType());
     assertEquals(TOTAL_BYTES_BILLED, QUERY_STATISTICS.getTotalBytesBilled());
     assertEquals(TOTAL_BYTES_PROCESSED, QUERY_STATISTICS.getTotalBytesProcessed());
     assertEquals(TOTAL_PARTITION_PROCESSED, QUERY_STATISTICS.getTotalPartitionsProcessed());
-    assertEquals(TOTAL_SLOT_MS, QUERY_STATISTICS.getTotalSlotMs());
     assertEquals(QUERY_PLAN, QUERY_STATISTICS.getQueryPlan());
     assertEquals(TIMELINE, QUERY_STATISTICS.getTimeline());
 
@@ -448,6 +465,8 @@ public class JobStatisticsTest {
     assertEquals(expected.getMetadataCacheStats(), value.getMetadataCacheStats());
     assertEquals(expected.getStatementType(), value.getStatementType());
     assertEquals(expected.getTimeline(), value.getTimeline());
+    assertEquals(expected.getDmlStats(), value.getDmlStats());
+    assertEquals(expected.getExportDataStats(), value.getExportDataStats());
   }
 
   private void compareStatistics(JobStatistics expected, JobStatistics value) {
@@ -460,6 +479,7 @@ public class JobStatisticsTest {
     assertEquals(expected.getNumChildJobs(), value.getNumChildJobs());
     assertEquals(expected.getParentJobId(), value.getParentJobId());
     assertEquals(expected.getScriptStatistics(), value.getScriptStatistics());
+    assertEquals(expected.getTotalSlotMs(), value.getTotalSlotMs());
   }
 
   private void compareScriptStatistics(ScriptStatistics expected, ScriptStatistics value) {

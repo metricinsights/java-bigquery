@@ -25,6 +25,10 @@ import com.google.api.gax.retrying.RetryingExecutor;
 import com.google.api.gax.retrying.RetryingFuture;
 import com.google.api.gax.retrying.TimedRetryAlgorithm;
 import com.google.cloud.RetryHelper;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+import java.io.IOException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
@@ -39,9 +43,18 @@ public class BigQueryRetryHelper extends RetryHelper {
       RetrySettings retrySettings,
       ResultRetryAlgorithm<?> resultRetryAlgorithm,
       ApiClock clock,
-      BigQueryRetryConfig bigQueryRetryConfig)
+      BigQueryRetryConfig bigQueryRetryConfig,
+      boolean isOpenTelemetryEnabled,
+      Tracer openTelemetryTracer)
       throws RetryHelperException {
-    try {
+    Span runWithRetries = null;
+    if (isOpenTelemetryEnabled && openTelemetryTracer != null) {
+      runWithRetries =
+          openTelemetryTracer
+              .spanBuilder("com.google.cloud.bigquery.BigQueryRetryHelper.runWithRetries")
+              .startSpan();
+    }
+    try (Scope runWithRetriesScope = runWithRetries != null ? runWithRetries.makeCurrent() : null) {
       // Suppressing should be ok as a workaraund. Current and only ResultRetryAlgorithm
       // implementation does not use response at all, so ignoring its type is ok.
       @SuppressWarnings("unchecked")
@@ -52,7 +65,16 @@ public class BigQueryRetryHelper extends RetryHelper {
           algorithm,
           bigQueryRetryConfig);
     } catch (Exception e) {
+      // Checks for IOException and translate it into BigQueryException. The BigQueryException
+      // constructor parses the IOException and translate it into internal code.
+      if (e.getCause() instanceof IOException) {
+        throw new BigQueryRetryHelperException(new BigQueryException((IOException) e.getCause()));
+      }
       throw new BigQueryRetryHelperException(e.getCause());
+    } finally {
+      if (runWithRetries != null) {
+        runWithRetries.end();
+      }
     }
   }
 

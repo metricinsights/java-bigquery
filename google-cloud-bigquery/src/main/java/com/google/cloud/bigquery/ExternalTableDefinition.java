@@ -19,9 +19,12 @@ package com.google.cloud.bigquery;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 
+import com.google.api.core.ApiFunction;
 import com.google.api.services.bigquery.model.ExternalDataConfiguration;
 import com.google.api.services.bigquery.model.Table;
 import com.google.auto.value.AutoValue;
+import com.google.cloud.StringEnumType;
+import com.google.cloud.StringEnumValue;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
@@ -56,6 +59,46 @@ public abstract class ExternalTableDefinition extends TableDefinition {
           };
 
   private static final long serialVersionUID = -5951580238459622025L;
+
+  public static final class SourceColumnMatch extends StringEnumValue {
+    private static final long serialVersionUID = 818920627219751207L;
+    private static final ApiFunction<String, SourceColumnMatch> CONSTRUCTOR =
+        new ApiFunction<String, SourceColumnMatch>() {
+          @Override
+          public SourceColumnMatch apply(String constant) {
+            return new SourceColumnMatch(constant);
+          }
+        };
+
+    private static final StringEnumType<SourceColumnMatch> type =
+        new StringEnumType<SourceColumnMatch>(SourceColumnMatch.class, CONSTRUCTOR);
+
+    public static final SourceColumnMatch POSITION = type.createAndRegister("POSITION");
+
+    public static final SourceColumnMatch NAME = type.createAndRegister("NAME");
+
+    private SourceColumnMatch(String constant) {
+      super(constant);
+    }
+
+    /**
+     * Get the SourceColumnMatch for the given String constant, and throw an exception if the
+     * constant is not recognized.
+     */
+    public static SourceColumnMatch valueOfStrict(String constant) {
+      return type.valueOfStrict(constant);
+    }
+
+    /** Get the SourceColumnMatch for the given String constant, and allow unrecognized values. */
+    public static SourceColumnMatch valueOf(String constant) {
+      return type.valueOf(constant);
+    }
+
+    /** Return the known values for SourceColumnMatch. */
+    public static SourceColumnMatch[] values() {
+      return type.values();
+    }
+  }
 
   @AutoValue.Builder
   public abstract static class Builder
@@ -167,7 +210,8 @@ public abstract class ExternalTableDefinition extends TableDefinition {
     /** Sets the table Hive partitioning options. */
     public Builder setHivePartitioningOptions(HivePartitioningOptions hivePartitioningOptions) {
       return setHivePartitioningOptionsInner(hivePartitioningOptions);
-    };
+    }
+    ;
 
     /**
      * When creating an external table, the user can provide a reference file with the table schema.
@@ -179,6 +223,79 @@ public abstract class ExternalTableDefinition extends TableDefinition {
 
     abstract Builder setHivePartitioningOptionsInner(
         HivePartitioningOptions hivePartitioningOptions);
+
+    public Builder setObjectMetadata(String objectMetadata) {
+      return setObjectMetadataInner(objectMetadata);
+    }
+
+    abstract Builder setObjectMetadataInner(String objectMetadata);
+
+    /**
+     * [Optional] Metadata Cache Mode for the table. Set this to enable caching of metadata from
+     * external data source.
+     *
+     * @see <a
+     *     href="https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#metadatacachemode">
+     *     MetadataCacheMode</a>
+     */
+    public Builder setMetadataCacheMode(String metadataCacheMode) {
+      return setMetadataCacheModeInner(metadataCacheMode);
+    }
+
+    abstract Builder setMetadataCacheModeInner(String metadataCacheMode);
+
+    /**
+     * [Optional] Metadata Cache Mode for the table. Set this to enable caching of metadata from
+     * external data source.
+     *
+     * @see <a
+     *     href="https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#resource:-table">
+     *     MaxStaleness</a>
+     */
+    public Builder setMaxStaleness(String maxStaleness) {
+      return setMaxStalenessInner(maxStaleness);
+    }
+
+    abstract Builder setMaxStalenessInner(String maxStaleness);
+
+    /**
+     * Time zone used when parsing timestamp values that do not have specific time zone information
+     * (e.g. 2024-04-20 12:34:56). The expected format is a IANA timezone string (e.g.
+     * America/Los_Angeles).
+     */
+    public abstract Builder setTimeZone(String timeZone);
+
+    /** Format used to parse DATE values. Supports C-style and SQL-style values. */
+    public abstract Builder setDateFormat(String dateFormat);
+
+    /** Format used to parse DATETIME values. Supports C-style and SQL-style values. */
+    public abstract Builder setDatetimeFormat(String datetimeFormat);
+
+    /** Format used to parse TIME values. Supports C-style and SQL-style values. */
+    public abstract Builder setTimeFormat(String timeFormat);
+
+    /** Format used to parse TIMESTAMP values. Supports C-style and SQL-style values. */
+    public abstract Builder setTimestampFormat(String timestampFormat);
+
+    /**
+     * Controls the strategy used to match loaded columns to the schema. If not set, a sensible
+     * default is chosen based on how the schema is provided. If autodetect is used, then columns
+     * are matched by name. Otherwise, columns are matched by position. This is done to keep the
+     * behavior backward-compatible. Acceptable values are: POSITION - matches by position. This
+     * assumes that the columns are ordered the same way as the schema. NAME - matches by name. This
+     * reads the header row as column names and reorders columns to match the field names in the
+     * schema.
+     */
+    public abstract Builder setSourceColumnMatch(SourceColumnMatch sourceColumnMatch);
+
+    /**
+     * A list of strings represented as SQL NULL value in a CSV file. null_marker and null_markers
+     * can't be set at the same time. If null_marker is set, null_markers has to be not set. If
+     * null_markers is set, null_marker has to be not set. If both null_marker and null_markers are
+     * set at the same time, a user error would be thrown. Any strings listed in null_markers,
+     * including empty string would be interpreted as SQL NULL. This applies to all column types.
+     */
+    public abstract Builder setNullMarkers(List<String> nullMarkers);
 
     /** Creates an {@code ExternalTableDefinition} object. */
     @Override
@@ -219,7 +336,8 @@ public abstract class ExternalTableDefinition extends TableDefinition {
   @Nullable
   public Boolean ignoreUnknownValues() {
     return getIgnoreUnknownValues();
-  };
+  }
+  ;
 
   @Nullable
   public abstract Boolean getIgnoreUnknownValues();
@@ -254,6 +372,52 @@ public abstract class ExternalTableDefinition extends TableDefinition {
 
   @Nullable
   public abstract ImmutableList<String> getSourceUrisImmut();
+
+  /**
+   * Returns the object metadata.
+   *
+   * @see <a
+   *     href="https://cloud.google.com/bigquery/docs/reference/v2/tables#externalDataConfiguration">
+   *     ObjectMetadata</a>
+   */
+  @Nullable
+  public String getObjectMetadata() {
+    return getObjectMetadataInner();
+  }
+
+  @Nullable
+  abstract String getObjectMetadataInner();
+
+  /**
+   * Returns the metadata cache mode.
+   *
+   * @see <a
+   *     href="https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#metadatacachemode">
+   *     MetadataCacheMode</a>
+   */
+  @Nullable
+  public String getMetadataCacheMode() {
+    return getMetadataCacheModeInner();
+  }
+
+  @Nullable
+  abstract String getMetadataCacheModeInner();
+
+  /**
+   * Returns the maximum staleness of data that could be returned when the table is queried.
+   * Staleness encoded as a string encoding of sql IntervalValue type.
+   *
+   * @see <a
+   *     href="hhttps://cloud.google.com/bigquery/docs/reference/rest/v2/tables#resource:-table">
+   *     MaxStaleness</a>
+   */
+  @Nullable
+  public String getMaxStaleness() {
+    return getMaxStalenessInner();
+  }
+
+  @Nullable
+  abstract String getMaxStalenessInner();
 
   /**
    * Returns the source format, and possibly some parsing options, of the external data. Supported
@@ -291,6 +455,37 @@ public abstract class ExternalTableDefinition extends TableDefinition {
     return getHivePartitioningOptionsInner();
   }
 
+  /**
+   * Returns the time zone used when parsing timestamp values that don't have specific time zone
+   * information.
+   */
+  @Nullable
+  public abstract String getTimeZone();
+
+  /** Returns the format used to parse DATE values. */
+  @Nullable
+  public abstract String getDateFormat();
+
+  /** Returns the format used to parse DATETIME values. */
+  @Nullable
+  public abstract String getDatetimeFormat();
+
+  /** Returns the format used to parse TIME values. */
+  @Nullable
+  public abstract String getTimeFormat();
+
+  /** Returns the format used to parse TIMESTAMP values. */
+  @Nullable
+  public abstract String getTimestampFormat();
+
+  /** Returns the strategy used to match loaded columns to the schema, either POSITION or NAME. */
+  @Nullable
+  public abstract SourceColumnMatch getSourceColumnMatch();
+
+  /** Returns a list of strings represented as SQL NULL value in a CSV file. */
+  @Nullable
+  public abstract List<String> getNullMarkers();
+
   @Nullable
   abstract HivePartitioningOptions getHivePartitioningOptionsInner();
 
@@ -301,6 +496,9 @@ public abstract class ExternalTableDefinition extends TableDefinition {
   com.google.api.services.bigquery.model.Table toPb() {
     Table tablePb = super.toPb();
     tablePb.setExternalDataConfiguration(toExternalDataConfigurationPb());
+    if (getMaxStaleness() != null) {
+      tablePb.setMaxStaleness(getMaxStaleness());
+    }
     return tablePb;
   }
 
@@ -360,6 +558,37 @@ public abstract class ExternalTableDefinition extends TableDefinition {
     }
     if (getFileSetSpecType() != null) {
       externalConfigurationPb.setFileSetSpecType(getFileSetSpecType());
+    }
+
+    if (getObjectMetadata() != null) {
+      externalConfigurationPb.setObjectMetadata(getObjectMetadata());
+    }
+
+    if (getMetadataCacheMode() != null) {
+      externalConfigurationPb.setMetadataCacheMode(getMetadataCacheMode());
+    }
+    if (getTimeZone() != null) {
+      externalConfigurationPb.setTimeZone(getTimeZone());
+    }
+    if (getDateFormat() != null) {
+      externalConfigurationPb.setDateFormat(getDateFormat());
+    }
+    if (getDatetimeFormat() != null) {
+      externalConfigurationPb.setDatetimeFormat(getDatetimeFormat());
+    }
+    if (getTimeFormat() != null) {
+      externalConfigurationPb.setTimeFormat(getTimeFormat());
+    }
+    if (getTimestampFormat() != null) {
+      externalConfigurationPb.setTimestampFormat(getTimestampFormat());
+    }
+    if (getSourceColumnMatch() != null) {
+      externalConfigurationPb
+          .getCsvOptions()
+          .setSourceColumnMatch(getSourceColumnMatch().toString());
+    }
+    if (getNullMarkers() != null) {
+      externalConfigurationPb.getCsvOptions().setNullMarkers(getNullMarkers());
     }
 
     return externalConfigurationPb;
@@ -424,6 +653,24 @@ public abstract class ExternalTableDefinition extends TableDefinition {
   public static Builder newBuilder(String sourceUri, FormatOptions format) {
     checkArgument(!isNullOrEmpty(sourceUri), "Provided sourceUri is null or empty");
     return newBuilder().setSourceUris(ImmutableList.of(sourceUri)).setFormatOptions(format);
+  }
+
+  /**
+   * Creates a builder for an ExternalTableDefinition object.
+   *
+   * @param sourceUri the fully-qualified URIs that point to your data in Google Cloud. For Google
+   *     Cloud Bigtable URIs: Exactly one URI can be specified and it has be a fully specified and
+   *     valid HTTPS URL for a Google Cloud Bigtable table. Size limits related to load jobs apply
+   *     to external data sources, plus an additional limit of 10 GB maximum size across all URIs.
+   * @return a builder for an ExternalTableDefinition object given source URIs and format
+   * @see <a href="https://cloud.google.com/bigquery/loading-data-into-bigquery#quota">Quota</a>
+   * @see <a
+   *     href="https://cloud.google.com/bigquery/docs/reference/v2/tables#externalDataConfiguration.sourceFormat">
+   *     Source Format</a>
+   */
+  public static Builder newBuilder(String sourceUri) {
+    checkArgument(!isNullOrEmpty(sourceUri), "Provided sourceUri is null or empty");
+    return newBuilder().setSourceUris(ImmutableList.of(sourceUri));
   }
 
   /**
@@ -534,6 +781,40 @@ public abstract class ExternalTableDefinition extends TableDefinition {
       if (externalDataConfiguration.getFileSetSpecType() != null) {
         builder.setFileSetSpecType(externalDataConfiguration.getFileSetSpecType());
       }
+      if (externalDataConfiguration.getObjectMetadata() != null) {
+        builder.setObjectMetadata(externalDataConfiguration.getObjectMetadata());
+      }
+      if (externalDataConfiguration.getMetadataCacheMode() != null) {
+        builder.setMetadataCacheMode(externalDataConfiguration.getMetadataCacheMode());
+      }
+      if (tablePb.getMaxStaleness() != null) {
+        builder.setMaxStaleness(tablePb.getMaxStaleness());
+      }
+      if (externalDataConfiguration.getTimeZone() != null) {
+        builder.setTimeZone(externalDataConfiguration.getTimeZone());
+      }
+      if (externalDataConfiguration.getDateFormat() != null) {
+        builder.setDateFormat(externalDataConfiguration.getDateFormat());
+      }
+      if (externalDataConfiguration.getDatetimeFormat() != null) {
+        builder.setDatetimeFormat(externalDataConfiguration.getDatetimeFormat());
+      }
+      if (externalDataConfiguration.getTimeFormat() != null) {
+        builder.setTimeFormat(externalDataConfiguration.getTimeFormat());
+      }
+      if (externalDataConfiguration.getTimestampFormat() != null) {
+        builder.setTimestampFormat(externalDataConfiguration.getTimestampFormat());
+      }
+      if (externalDataConfiguration.getCsvOptions() != null) {
+        if (externalDataConfiguration.getCsvOptions().getSourceColumnMatch() != null) {
+          builder.setSourceColumnMatch(
+              SourceColumnMatch.valueOf(
+                  externalDataConfiguration.getCsvOptions().getSourceColumnMatch()));
+        }
+        if (externalDataConfiguration.getCsvOptions().getNullMarkers() != null) {
+          builder.setNullMarkers(externalDataConfiguration.getCsvOptions().getNullMarkers());
+        }
+      }
     }
     return builder.build();
   }
@@ -595,6 +876,39 @@ public abstract class ExternalTableDefinition extends TableDefinition {
     }
     if (externalDataConfiguration.getFileSetSpecType() != null) {
       builder.setFileSetSpecType(externalDataConfiguration.getFileSetSpecType());
+    }
+
+    if (externalDataConfiguration.getObjectMetadata() != null) {
+      builder.setObjectMetadata(externalDataConfiguration.getObjectMetadata());
+    }
+
+    if (externalDataConfiguration.getMetadataCacheMode() != null) {
+      builder.setMetadataCacheMode(externalDataConfiguration.getMetadataCacheMode());
+    }
+    if (externalDataConfiguration.getTimeZone() != null) {
+      builder.setTimeZone(externalDataConfiguration.getTimeZone());
+    }
+    if (externalDataConfiguration.getDateFormat() != null) {
+      builder.setDateFormat(externalDataConfiguration.getDateFormat());
+    }
+    if (externalDataConfiguration.getDatetimeFormat() != null) {
+      builder.setDatetimeFormat(externalDataConfiguration.getDatetimeFormat());
+    }
+    if (externalDataConfiguration.getTimeFormat() != null) {
+      builder.setTimeFormat(externalDataConfiguration.getTimeFormat());
+    }
+    if (externalDataConfiguration.getTimestampFormat() != null) {
+      builder.setTimestampFormat(externalDataConfiguration.getTimeFormat());
+    }
+    if (externalDataConfiguration.getCsvOptions() != null) {
+      if (externalDataConfiguration.getCsvOptions().getSourceColumnMatch() != null) {
+        builder.setSourceColumnMatch(
+            SourceColumnMatch.valueOf(
+                externalDataConfiguration.getCsvOptions().getSourceColumnMatch()));
+      }
+      if (externalDataConfiguration.getCsvOptions().getNullMarkers() != null) {
+        builder.setNullMarkers(externalDataConfiguration.getCsvOptions().getNullMarkers());
+      }
     }
 
     return builder.build();

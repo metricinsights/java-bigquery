@@ -4,7 +4,7 @@
   <groupId>com.google.cloud</groupId>
   <artifactId>google-cloud-bigquery-parent</artifactId>
   <packaging>pom</packaging>
-  <version>2.38.3-mi</version><!-- {x-version-update:google-cloud-bigquery:current} -->
+  <version>2.56.0-mi</version><!-- {x-version-update:google-cloud-bigquery:current} -->
   <name>BigQuery Parent</name>
   <url>https://github.com/googleapis/java-bigquery</url>
   <description>
@@ -14,7 +14,7 @@
   <parent>
     <groupId>com.google.cloud</groupId>
     <artifactId>sdk-platform-java-config</artifactId>
-    <version>3.28.1</version>
+    <version>3.54.1</version>
   </parent>
 
   <developers>
@@ -60,7 +60,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <github.global.server>github</github.global.server>
     <site.installationModule>google-cloud-bigquery-parent</site.installationModule>
-    <google-api-services-bigquery.version>v2-rev20240229-2.0.0</google-api-services-bigquery.version>
+    <google-api-services-bigquery.version>v2-rev20251012-2.0.0</google-api-services-bigquery.version>
     <repo.host>repo.metricinsights.com</repo.host>
     <repo.root>var/www/repo.metricinsights.com</repo.root>
   </properties>
@@ -79,7 +79,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-bigquerystorage-bom</artifactId>
-        <version>3.4.0</version>
+        <version>3.18.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -87,7 +87,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-datacatalog-bom</artifactId>
-        <version>1.45.0</version>
+        <version>1.78.0</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -101,7 +101,7 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-bigquery</artifactId>
-        <version>2.38.3-SNAPSHOT</version><!-- {x-version-update:google-cloud-bigquery:current} -->
+        <version>2.56.0</version><!-- {x-version-update:google-cloud-bigquery:current} -->
       </dependency>
 
       <dependency>
@@ -114,7 +114,7 @@
       <dependency>
         <groupId>org.threeten</groupId>
         <artifactId>threeten-extra</artifactId>
-        <version>1.7.2</version>
+        <version>1.8.0</version>
       </dependency>
 
       <!-- Test dependencies -->
@@ -127,7 +127,7 @@
       <dependency>
         <groupId>com.google.truth</groupId>
         <artifactId>truth</artifactId>
-        <version>1.4.2</version>
+        <version>1.4.4</version>
         <scope>test</scope>
         <exclusions>
           <exclusion>
@@ -145,19 +145,19 @@
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-storage</artifactId>
-        <version>2.36.1</version>
+        <version>2.53.3</version>
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>com.google.cloud</groupId>
         <artifactId>google-cloud-bigqueryconnection</artifactId>
-        <version>2.41.0</version>
+        <version>2.74.0</version>
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>com.google.api.grpc</groupId>
         <artifactId>proto-google-cloud-bigqueryconnection-v1</artifactId>
-        <version>2.41.0</version>
+        <version>2.70.0</version>
         <scope>test</scope>
       </dependency>
     </dependencies>
@@ -176,7 +176,10 @@
         <artifactId>maven-dependency-plugin</artifactId>
         <configuration>
           <ignoredUnusedDeclaredDependencies>
+            <ignoredUnusedDeclaredDependency>io.netty:netty-buffer</ignoredUnusedDeclaredDependency>
+            <ignoredUnusedDeclaredDependency>io.netty:netty-common</ignoredUnusedDeclaredDependency>
             <ignoredUnusedDeclaredDependency>org.apache.arrow:arrow-memory-netty</ignoredUnusedDeclaredDependency>
+            <ignoredUnusedDeclaredDependency>com.google.api:gax</ignoredUnusedDeclaredDependency>
           </ignoredUnusedDeclaredDependencies>
         </configuration>
       </plugin>
@@ -211,7 +214,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-project-info-reports-plugin</artifactId>
-        <version>3.5.0</version>
+        <version>3.9.0</version>
         <reportSets>
           <reportSet>
             <reports>

@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import com.google.cloud.bigquery.JobInfo.CreateDisposition;
 import com.google.cloud.bigquery.JobInfo.SchemaUpdateOption;
 import com.google.cloud.bigquery.JobInfo.WriteDisposition;
+import com.google.cloud.bigquery.LoadJobConfiguration.SourceColumnMatch;
 import com.google.cloud.bigquery.TimePartitioning.Type;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +38,7 @@ public class LoadJobConfigurationTest {
           .setAllowJaggedRows(true)
           .setAllowQuotedNewLines(false)
           .setEncoding(StandardCharsets.UTF_8)
+          .setPreserveAsciiControlCharacters(true)
           .build();
   private static final TableId TABLE_ID = TableId.of("dataset", "table");
   private static final CreateDisposition CREATE_DISPOSITION = CreateDisposition.CREATE_IF_NEEDED;
@@ -67,6 +69,7 @@ public class LoadJobConfigurationTest {
   private static final Map<String, String> LABELS =
       ImmutableMap.of("test-job-name", "test-load-job");
   private static final Long TIMEOUT = 10L;
+  private static final String RESERVATION = "reservation";
   private static final RangePartitioning.Range RANGE =
       RangePartitioning.Range.newBuilder().setStart(1L).setInterval(2L).setEnd(10L).build();
   private static final RangePartitioning RANGE_PARTITIONING =
@@ -76,6 +79,13 @@ public class LoadJobConfigurationTest {
 
   private static final String KEY = "session_id";
   private static final String VALUE = "session_id_1234567890";
+  private static final String TIME_ZONE = "America/Los_Angeles";
+  private static final String DATE_FORMAT = "YYYY-MM-DD";
+  private static final String DATETIME_FORMAT = "YYYY-MM-DD HH:MI:SS";
+  private static final String TIME_FORMAT = "HH:MI:SS";
+  private static final String TIMESTAMP_FORMAT = "YYYY-MM-DD HH:MI:SS";
+  private static final SourceColumnMatch SOURCE_COLUMN_MATCH = SourceColumnMatch.POSITION;
+  private static final List<String> NULL_MARKERS = ImmutableList.of("SQL NULL", "TEST MARKER");
   private static final ConnectionProperty CONNECTION_PROPERTY =
       ConnectionProperty.newBuilder().setKey(KEY).setValue(VALUE).build();
   private static final List<ConnectionProperty> CONNECTION_PROPERTIES =
@@ -92,6 +102,7 @@ public class LoadJobConfigurationTest {
           .setWriteDisposition(WRITE_DISPOSITION)
           .setFormatOptions(CSV_OPTIONS)
           .setFileSetSpecType("FILE_SET_SPEC_TYPE_FILE_SYSTEM_MATCH")
+          .setColumnNameCharacterMap("STRICT")
           .setIgnoreUnknownValues(IGNORE_UNKNOWN_VALUES)
           .setMaxBadRecords(MAX_BAD_RECORDS)
           .setSchema(TABLE_SCHEMA)
@@ -107,6 +118,14 @@ public class LoadJobConfigurationTest {
           .setHivePartitioningOptions(HIVE_PARTITIONING_OPTIONS)
           .setConnectionProperties(CONNECTION_PROPERTIES)
           .setCreateSession(CREATE_SESSION)
+          .setReservation(RESERVATION)
+          .setTimeZone(TIME_ZONE)
+          .setDateFormat(DATE_FORMAT)
+          .setDatetimeFormat(DATETIME_FORMAT)
+          .setTimeFormat(TIME_FORMAT)
+          .setTimestampFormat(TIMESTAMP_FORMAT)
+          .setSourceColumnMatch(SOURCE_COLUMN_MATCH)
+          .setNullMarkers(NULL_MARKERS)
           .build();
 
   private static final DatastoreBackupOptions BACKUP_OPTIONS =
@@ -126,6 +145,7 @@ public class LoadJobConfigurationTest {
           .setLabels(LABELS)
           .setJobTimeoutMs(TIMEOUT)
           .setRangePartitioning(RANGE_PARTITIONING)
+          .setReservation(RESERVATION)
           .build();
   private static final LoadJobConfiguration LOAD_CONFIGURATION_AVRO =
       LoadJobConfiguration.newBuilder(TABLE_ID, SOURCE_URIS)
@@ -144,14 +164,14 @@ public class LoadJobConfigurationTest {
           .setLabels(LABELS)
           .setJobTimeoutMs(TIMEOUT)
           .setRangePartitioning(RANGE_PARTITIONING)
+          .setReservation(RESERVATION)
           .build();
 
   @Test
   public void testToBuilder() {
     compareLoadJobConfiguration(LOAD_CONFIGURATION_CSV, LOAD_CONFIGURATION_CSV.toBuilder().build());
     LoadJobConfiguration configurationCSV =
-        LOAD_CONFIGURATION_CSV
-            .toBuilder()
+        LOAD_CONFIGURATION_CSV.toBuilder()
             .setDestinationTable(TableId.of("dataset", "newTable"))
             .build();
     assertEquals("newTable", configurationCSV.getDestinationTable().getTable());
@@ -161,8 +181,7 @@ public class LoadJobConfigurationTest {
     compareLoadJobConfiguration(
         LOAD_CONFIGURATION_BACKUP, LOAD_CONFIGURATION_BACKUP.toBuilder().build());
     LoadJobConfiguration configurationBackup =
-        LOAD_CONFIGURATION_BACKUP
-            .toBuilder()
+        LOAD_CONFIGURATION_BACKUP.toBuilder()
             .setDestinationTable(TableId.of("dataset", "newTable"))
             .build();
     assertEquals("newTable", configurationBackup.getDestinationTable().getTable());
@@ -172,8 +191,7 @@ public class LoadJobConfigurationTest {
     compareLoadJobConfiguration(
         LOAD_CONFIGURATION_AVRO, LOAD_CONFIGURATION_AVRO.toBuilder().build());
     LoadJobConfiguration configurationAvro =
-        LOAD_CONFIGURATION_AVRO
-            .toBuilder()
+        LOAD_CONFIGURATION_AVRO.toBuilder()
             .setDestinationTable(TableId.of("dataset", "newTable"))
             .build();
     assertEquals("newTable", configurationAvro.getDestinationTable().getTable());
@@ -224,8 +242,7 @@ public class LoadJobConfigurationTest {
   @Test
   public void testSetProjectIdDoNotOverride() {
     LoadConfiguration configuration =
-        LOAD_CONFIGURATION_CSV
-            .toBuilder()
+        LOAD_CONFIGURATION_CSV.toBuilder()
             .setDestinationTable(TABLE_ID.setProjectId(TEST_PROJECT_ID))
             .build()
             .setProjectId("do-not-update");
@@ -242,6 +259,7 @@ public class LoadJobConfigurationTest {
     assertEquals(expected, value);
     assertEquals(expected.hashCode(), value.hashCode());
     assertEquals(expected.getFileSetSpecType(), value.getFileSetSpecType());
+    assertEquals(expected.getColumnNameCharacterMap(), value.getColumnNameCharacterMap());
     assertEquals(expected.toString(), value.toString());
     assertEquals(expected.getDestinationTable(), value.getDestinationTable());
     assertEquals(expected.getDecimalTargetTypes(), value.getDecimalTargetTypes());
@@ -268,5 +286,13 @@ public class LoadJobConfigurationTest {
     assertEquals(expected.getHivePartitioningOptions(), value.getHivePartitioningOptions());
     assertEquals(expected.getConnectionProperties(), value.getConnectionProperties());
     assertEquals(expected.getCreateSession(), value.getCreateSession());
+    assertEquals(expected.getReservation(), value.getReservation());
+    assertEquals(expected.getTimeZone(), value.getTimeZone());
+    assertEquals(expected.getDateFormat(), value.getDateFormat());
+    assertEquals(expected.getDatetimeFormat(), value.getDatetimeFormat());
+    assertEquals(expected.getTimeFormat(), value.getTimeFormat());
+    assertEquals(expected.getTimestampFormat(), value.getTimestampFormat());
+    assertEquals(expected.getSourceColumnMatch(), value.getSourceColumnMatch());
+    assertEquals(expected.getNullMarkers(), value.getNullMarkers());
   }
 }
