@@ -16,16 +16,18 @@
 
 package com.google.cloud.bigquery;
 
+import com.google.api.core.BetaApi;
+import com.google.api.gax.retrying.ResultRetryAlgorithm;
 import com.google.cloud.ServiceDefaults;
 import com.google.cloud.ServiceOptions;
 import com.google.cloud.ServiceRpc;
 import com.google.cloud.TransportOptions;
+import com.google.cloud.bigquery.QueryJobConfiguration.JobCreationMode;
 import com.google.cloud.bigquery.spi.BigQueryRpcFactory;
-import com.google.cloud.bigquery.spi.v2.BigQueryRpc;
 import com.google.cloud.bigquery.spi.v2.HttpBigQueryRpc;
 import com.google.cloud.http.HttpTransportOptions;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
+import io.opentelemetry.api.trace.Tracer;
 import java.util.Set;
 
 public class BigQueryOptions extends ServiceOptions<BigQuery, BigQueryOptions> {
@@ -34,11 +36,15 @@ public class BigQueryOptions extends ServiceOptions<BigQuery, BigQueryOptions> {
   private static final int DEFAULT_READ_API_TIME_OUT = 60000;
   private static final String BIGQUERY_SCOPE = "https://www.googleapis.com/auth/bigquery";
   private static final Set<String> SCOPES = ImmutableSet.of(BIGQUERY_SCOPE);
-  private static final long serialVersionUID = -2437598817433266049L;
+  private static final long serialVersionUID = -2437598817433266048L;
   private final String location;
   // set the option ThrowNotFound when you want to throw the exception when the value not found
   private boolean setThrowNotFound;
-  private String queryPreviewEnabled = System.getenv("QUERY_PREVIEW_ENABLED");
+  private boolean useInt64Timestamps;
+  private JobCreationMode defaultJobCreationMode = JobCreationMode.JOB_CREATION_MODE_UNSPECIFIED;
+  private boolean enableOpenTelemetryTracing;
+  private Tracer openTelemetryTracer;
+  private ResultRetryAlgorithm<?> resultRetryAlgorithm;
 
   public static class DefaultBigQueryFactory implements BigQueryFactory {
 
@@ -63,6 +69,10 @@ public class BigQueryOptions extends ServiceOptions<BigQuery, BigQueryOptions> {
   public static class Builder extends ServiceOptions.Builder<BigQuery, BigQueryOptions, Builder> {
 
     private String location;
+    private boolean useInt64Timestamps;
+    private boolean enableOpenTelemetryTracing;
+    private Tracer openTelemetryTracer;
+    private ResultRetryAlgorithm<?> resultRetryAlgorithm;
 
     private Builder() {}
 
@@ -84,6 +94,38 @@ public class BigQueryOptions extends ServiceOptions<BigQuery, BigQueryOptions> {
       return this;
     }
 
+    public Builder setUseInt64Timestamps(boolean useInt64Timestamps) {
+      this.useInt64Timestamps = useInt64Timestamps;
+      return this;
+    }
+
+    /**
+     * Enables OpenTelemetry tracing functionality for this BigQuery instance
+     *
+     * @param enableOpenTelemetryTracing enables OpenTelemetry tracing if true
+     */
+    @BetaApi
+    public Builder setEnableOpenTelemetryTracing(boolean enableOpenTelemetryTracing) {
+      this.enableOpenTelemetryTracing = enableOpenTelemetryTracing;
+      return this;
+    }
+
+    /**
+     * Sets the OpenTelemetry tracer for this BigQuery instance to be tracer.
+     *
+     * @param tracer OpenTelemetry tracer to be used
+     */
+    @BetaApi
+    public Builder setOpenTelemetryTracer(Tracer tracer) {
+      this.openTelemetryTracer = tracer;
+      return this;
+    }
+
+    public Builder setResultRetryAlgorithm(ResultRetryAlgorithm<?> resultRetryAlgorithm) {
+      this.resultRetryAlgorithm = resultRetryAlgorithm;
+      return this;
+    }
+
     @Override
     public BigQueryOptions build() {
       return new BigQueryOptions(this);
@@ -93,6 +135,14 @@ public class BigQueryOptions extends ServiceOptions<BigQuery, BigQueryOptions> {
   private BigQueryOptions(Builder builder) {
     super(BigQueryFactory.class, BigQueryRpcFactory.class, builder, new BigQueryDefaults());
     this.location = builder.location;
+    this.useInt64Timestamps = builder.useInt64Timestamps;
+    this.enableOpenTelemetryTracing = builder.enableOpenTelemetryTracing;
+    this.openTelemetryTracer = builder.openTelemetryTracer;
+    if (builder.resultRetryAlgorithm != null) {
+      this.resultRetryAlgorithm = builder.resultRetryAlgorithm;
+    } else {
+      this.resultRetryAlgorithm = BigQueryBaseService.DEFAULT_BIGQUERY_EXCEPTION_HANDLER;
+    }
   }
 
   private static class BigQueryDefaults implements ServiceDefaults<BigQuery, BigQueryOptions> {
@@ -124,29 +174,68 @@ public class BigQueryOptions extends ServiceOptions<BigQuery, BigQueryOptions> {
     return SCOPES;
   }
 
-  protected BigQueryRpc getBigQueryRpcV2() {
-    return (BigQueryRpc) getRpc();
+  protected HttpBigQueryRpc getBigQueryRpcV2() {
+    return (HttpBigQueryRpc) getRpc();
   }
 
   public String getLocation() {
     return location;
   }
 
+  @Deprecated
   public boolean isQueryPreviewEnabled() {
-    return queryPreviewEnabled != null && queryPreviewEnabled.equalsIgnoreCase("TRUE");
+    return false;
   }
 
   public void setThrowNotFound(boolean setThrowNotFound) {
     this.setThrowNotFound = setThrowNotFound;
   }
 
-  @VisibleForTesting
-  public void setQueryPreviewEnabled(String queryPreviewEnabled) {
-    this.queryPreviewEnabled = queryPreviewEnabled;
+  public void setUseInt64Timestamps(boolean useInt64Timestamps) {
+    this.useInt64Timestamps = useInt64Timestamps;
+  }
+
+  @Deprecated
+  public void setQueryPreviewEnabled(String queryPreviewEnabled) {}
+
+  public void setDefaultJobCreationMode(JobCreationMode jobCreationMode) {
+    this.defaultJobCreationMode = jobCreationMode;
   }
 
   public boolean getThrowNotFound() {
     return setThrowNotFound;
+  }
+
+  public boolean getUseInt64Timestamps() {
+    return useInt64Timestamps;
+  }
+
+  public JobCreationMode getDefaultJobCreationMode() {
+    return defaultJobCreationMode;
+  }
+
+  /**
+   * Returns whether this BigQuery instance has OpenTelemetry tracing enabled
+   *
+   * @return true if tracing is enabled, false if not
+   */
+  @BetaApi("Span names and attributes are subject to change without notice")
+  public boolean isOpenTelemetryTracingEnabled() {
+    return enableOpenTelemetryTracing;
+  }
+
+  /**
+   * Returns the OpenTelemetry tracer used by this BigQuery instance
+   *
+   * @return OpenTelemetry tracer object or {@code null} if not set
+   */
+  @BetaApi("Span names and attributes are subject to change without notice")
+  public Tracer getOpenTelemetryTracer() {
+    return openTelemetryTracer;
+  }
+
+  public ResultRetryAlgorithm<?> getResultRetryAlgorithm() {
+    return resultRetryAlgorithm;
   }
 
   @SuppressWarnings("unchecked")

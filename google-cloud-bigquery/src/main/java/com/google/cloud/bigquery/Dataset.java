@@ -165,6 +165,18 @@ public class Dataset extends DatasetInfo {
     }
 
     @Override
+    public Builder setMaxTimeTravelHours(Long maxTimeTravelHours) {
+      infoBuilder.setMaxTimeTravelHours(maxTimeTravelHours);
+      return this;
+    }
+
+    @Override
+    public Builder setResourceTags(Map<String, String> resourceTags) {
+      infoBuilder.setResourceTags(resourceTags);
+      return this;
+    }
+
+    @Override
     public Dataset build() {
       return new Dataset(bigquery, infoBuilder);
     }

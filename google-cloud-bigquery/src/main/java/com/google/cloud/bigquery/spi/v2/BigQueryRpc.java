@@ -45,7 +45,12 @@ public interface BigQueryRpc extends ServiceRpc {
     STATE_FILTER("stateFilter"),
     TIMEOUT("timeoutMs"),
     REQUESTED_POLICY_VERSION("requestedPolicyVersion"),
-    TABLE_METADATA_VIEW("view");
+    TABLE_METADATA_VIEW("view"),
+    RETRY_OPTIONS("retryOptions"),
+    BIGQUERY_RETRY_CONFIG("bigQueryRetryConfig"),
+    ACCESS_POLICY_VERSION("accessPolicyVersion"),
+    DATASET_VIEW("datasetView"),
+    DATASET_UPDATE_MODE("datasetUpdateMode");
 
     private final String value;
 
@@ -226,6 +231,7 @@ public interface BigQueryRpc extends ServiceRpc {
 
   Tuple<String, Iterable<Routine>> listRoutines(
       String projectId, String datasetId, Map<Option, ?> options);
+
   /**
    * Deletes the requested routine.
    *

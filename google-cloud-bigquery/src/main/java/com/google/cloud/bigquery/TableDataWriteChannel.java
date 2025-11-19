@@ -16,12 +16,13 @@
 
 package com.google.cloud.bigquery;
 
-import static com.google.cloud.RetryHelper.runWithRetries;
-
 import com.google.cloud.BaseWriteChannel;
 import com.google.cloud.RestorableState;
-import com.google.cloud.RetryHelper;
 import com.google.cloud.WriteChannel;
+import com.google.cloud.bigquery.BigQueryRetryHelper.BigQueryRetryHelperException;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
+import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -33,6 +34,9 @@ import java.util.concurrent.Callable;
  */
 public class TableDataWriteChannel
     extends BaseWriteChannel<BigQueryOptions, WriteChannelConfiguration> {
+
+  private static final BigQueryRetryConfig EMPTY_RETRY_CONFIG =
+      BigQueryRetryConfig.newBuilder().build();
 
   private Job job;
 
@@ -48,23 +52,43 @@ public class TableDataWriteChannel
 
   @Override
   protected void flushBuffer(final int length, final boolean last) {
-    try {
+    Span flushBuffer = null;
+    if (getOptions().isOpenTelemetryTracingEnabled()
+        && getOptions().getOpenTelemetryTracer() != null) {
+      flushBuffer =
+          getOptions()
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.TableDataWriteChannel.flushBuffer")
+              .setAttribute("bq.table_data_write_channel.flush_buffer.length", length)
+              .setAttribute("bq.table_data_write_channel.flush_buffer.last", last)
+              .startSpan();
+    }
+
+    try (Scope flushBufferScope = flushBuffer != null ? flushBuffer.makeCurrent() : null) {
       com.google.api.services.bigquery.model.Job jobPb =
-          runWithRetries(
+          BigQueryRetryHelper.runWithRetries(
               new Callable<com.google.api.services.bigquery.model.Job>() {
                 @Override
-                public com.google.api.services.bigquery.model.Job call() {
+                public com.google.api.services.bigquery.model.Job call() throws IOException {
                   return getOptions()
                       .getBigQueryRpcV2()
-                      .write(getUploadId(), getBuffer(), 0, getPosition(), length, last);
+                      .writeSkipExceptionTranslation(
+                          getUploadId(), getBuffer(), 0, getPosition(), length, last);
                 }
               },
               getOptions().getRetrySettings(),
-              BigQueryBaseService.BIGQUERY_EXCEPTION_HANDLER,
-              getOptions().getClock());
+              getOptions().getResultRetryAlgorithm(),
+              getOptions().getClock(),
+              EMPTY_RETRY_CONFIG,
+              getOptions().isOpenTelemetryTracingEnabled(),
+              getOptions().getOpenTelemetryTracer());
       job = jobPb != null ? Job.fromPb(getOptions().getService(), jobPb) : null;
-    } catch (RetryHelper.RetryHelperException e) {
+    } catch (BigQueryRetryHelperException e) {
       throw BigQueryException.translateAndThrow(e);
+    } finally {
+      if (flushBuffer != null) {
+        flushBuffer.end();
+      }
     }
   }
 
@@ -77,24 +101,42 @@ public class TableDataWriteChannel
       final BigQueryOptions options,
       final JobId jobId,
       final WriteChannelConfiguration writeChannelConfiguration) {
-    try {
-      return runWithRetries(
+    Span open = null;
+    if (options.isOpenTelemetryTracingEnabled() && options.getOpenTelemetryTracer() != null) {
+      open =
+          options
+              .getOpenTelemetryTracer()
+              .spanBuilder("com.google.cloud.bigquery.TableDataWriteChannel.open")
+              .setAllAttributes(jobId.getOtelAttributes())
+              .setAllAttributes(writeChannelConfiguration.getDestinationTable().getOtelAttributes())
+              .startSpan();
+    }
+
+    try (Scope openScope = open != null ? open.makeCurrent() : null) {
+      return BigQueryRetryHelper.runWithRetries(
           new Callable<String>() {
             @Override
-            public String call() {
+            public String call() throws IOException {
               return options
                   .getBigQueryRpcV2()
-                  .open(
+                  .openSkipExceptionTranslation(
                       new com.google.api.services.bigquery.model.Job()
                           .setConfiguration(writeChannelConfiguration.toPb())
                           .setJobReference(jobId.toPb()));
             }
           },
           options.getRetrySettings(),
-          BigQueryBaseService.BIGQUERY_EXCEPTION_HANDLER,
-          options.getClock());
-    } catch (RetryHelper.RetryHelperException e) {
+          options.getResultRetryAlgorithm(),
+          options.getClock(),
+          EMPTY_RETRY_CONFIG,
+          options.isOpenTelemetryTracingEnabled(),
+          options.getOpenTelemetryTracer());
+    } catch (BigQueryRetryHelperException e) {
       throw BigQueryException.translateAndThrow(e);
+    } finally {
+      if (open != null) {
+        open.end();
+      }
     }
   }
 
